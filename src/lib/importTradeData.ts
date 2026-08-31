@@ -13,6 +13,7 @@ import { db } from "@/db";
 import { companies, importBatches, tradeRecords } from "@/db/schema";
 import { companyMatchKey, normalizeDisplayName } from "./normalize";
 import { findPossibleDuplicates } from "./duplicates";
+import { recalculateProjectScores } from "./recalculateScores";
 import { eq, and, isNull } from "drizzle-orm";
 
 // Taninan sutun basliklari (kucuk harfe cevrilip bosluklar temizlenerek karsilastirilir)
@@ -233,6 +234,12 @@ export async function importTradeDataRows(params: {
       status: "completed",
     })
     .where(eq(importBatches.id, batch.id));
+
+  // --- Bu projedeki tum firmalar icin Firsat Skorunu (yeniden) hesapla ---
+  // (madde 9/65 - tek merkezi formul; ayrintili yorum icin lib/recalculateScores.ts)
+  if (successCount > 0) {
+    await recalculateProjectScores(projectId);
+  }
 
   return {
     batchId: batch.id,

@@ -9,17 +9,10 @@
 import ExcelJS from "exceljs";
 import bcrypt from "bcryptjs";
 import { db } from "../src/db";
-import {
-  organizations,
-  users,
-  projects,
-  companyProjects,
-  tradeRecords,
-  companies,
-} from "../src/db/schema";
+import { organizations, users, projects } from "../src/db/schema";
 import { importTradeDataRows } from "../src/lib/importTradeData";
-import { calculateOpportunityScore } from "../src/lib/scoring";
-import { eq, and, sql } from "drizzle-orm";
+import { recalculateProjectScores } from "../src/lib/recalculateScores";
+import { eq, and } from "drizzle-orm";
 
 const SAMPLE_FILES = [
   "/root/.claude/uploads/c5472f24-1d86-5cea-88a4-1b8609f053f0/d053a37b-Azerbaycan_320810.xlsx",
@@ -113,72 +106,12 @@ async function main() {
   }
 
   // 5) Firsat Skoru hesapla (bu proje icindeki her firma icin)
+  // Not: importTradeDataRows artik her import sonunda bunu otomatik yapiyor
+  // (bkz. src/lib/recalculateScores.ts) - burada sadece garanti olsun diye
+  // bir kez daha (tum dosyalar yuklendikten sonra) cagiriyoruz.
   console.log("Firsat Skorlari hesaplaniyor...");
-
-  const agg = await db
-    .select({
-      companyId: tradeRecords.companyId,
-      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
-      transactionCount: sql<number>`COUNT(*)`,
-      distinctSuppliers: sql<number>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
-      lastTransactionDate: sql<string>`MAX(${tradeRecords.transactionDate})`,
-    })
-    .from(tradeRecords)
-    .where(eq(tradeRecords.projectId, project.id))
-    .groupBy(tradeRecords.companyId);
-
-  const maxValue = Math.max(...agg.map((a) => Number(a.totalValueUsd)));
-  const datasetMaxDate = new Date(
-    Math.max(...agg.map((a) => new Date(a.lastTransactionDate).getTime()))
-  );
-
-  for (const row of agg) {
-    if (!row.companyId) continue;
-    const lastDate = new Date(row.lastTransactionDate);
-    const daysSinceLast = Math.round(
-      (datasetMaxDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const allDaysSince = agg.map((a) =>
-      Math.round((datasetMaxDate.getTime() - new Date(a.lastTransactionDate).getTime()) / (1000 * 60 * 60 * 24))
-    );
-    const score = calculateOpportunityScore({
-      totalValueUsd: Number(row.totalValueUsd),
-      transactionCount: Number(row.transactionCount),
-      distinctSuppliers: Number(row.distinctSuppliers),
-      daysSinceLastTransaction: daysSinceLast,
-      maxValueUsdInDataset: maxValue,
-      maxDaysSinceLastTransactionInDataset: Math.max(...allDaysSince, 1),
-    });
-
-    const [existingCp] = await db
-      .select()
-      .from(companyProjects)
-      .where(and(eq(companyProjects.companyId, row.companyId), eq(companyProjects.projectId, project.id)));
-
-    const breakdown = JSON.stringify(score);
-
-    if (existingCp) {
-      await db
-        .update(companyProjects)
-        .set({
-          leadScore: score.total,
-          leadScoreLabel: score.label,
-          leadScoreBreakdown: breakdown,
-          updatedAt: new Date(),
-        })
-        .where(eq(companyProjects.id, existingCp.id));
-    } else {
-      await db.insert(companyProjects).values({
-        companyId: row.companyId,
-        projectId: project.id,
-        leadScore: score.total,
-        leadScoreLabel: score.label,
-        leadScoreBreakdown: breakdown,
-      });
-    }
-  }
-
-  console.log(`Tamamlandi. ${agg.length} firma icin Firsat Skoru hesaplandi.`);
+  const updatedCount = await recalculateProjectScores(project.id);
+  console.log(`Tamamlandi. ${updatedCount} firma icin Firsat Skoru hesaplandi.`);
   process.exit(0);
 }
 
