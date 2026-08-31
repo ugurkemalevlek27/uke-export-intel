@@ -5,6 +5,7 @@ import Link from "next/link";
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/companies", label: "Firmalar" },
+  { href: "/analiz", label: "Analiz" },
   { href: "/import", label: "Veri İçe Aktar" },
 ];
 

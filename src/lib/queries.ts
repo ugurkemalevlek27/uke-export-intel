@@ -108,6 +108,130 @@ export async function getCompaniesList(organizationId: number, filters: CompanyL
   return filtered;
 }
 
+// ---------------------------------------------------------------------------
+// Analiz ekranlari (Ulke Analizi / Urun Analizi) - pazaranaliz.azurewebsites.net
+// tarzi drill-down raporlar icin. "Firma/Alici Analizi" zaten Firmalar sayfasinda
+// (getCompaniesList / getCompanyDetail) karsilaniyor, burada tekrar yazilmiyor.
+// ---------------------------------------------------------------------------
+
+export async function getDistinctCountries(organizationId: number) {
+  const rows = await db
+    .select({
+      country: tradeRecords.importerCountry,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+    })
+    .from(tradeRecords)
+    .where(eq(tradeRecords.organizationId, organizationId))
+    .groupBy(tradeRecords.importerCountry)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`));
+  return rows;
+}
+
+export async function getDistinctProducts(organizationId: number) {
+  const rows = await db
+    .select({
+      hsCode: tradeRecords.hsCode,
+      productDescription: sql<string>`MIN(${tradeRecords.productDescription})`,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+    })
+    .from(tradeRecords)
+    .where(eq(tradeRecords.organizationId, organizationId))
+    .groupBy(tradeRecords.hsCode)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`));
+  return rows;
+}
+
+export async function getCountryAnalysis(organizationId: number, country: string) {
+  const conditions = [eq(tradeRecords.organizationId, organizationId), eq(tradeRecords.importerCountry, country)];
+
+  const [kpis] = await db
+    .select({
+      totalValueUsd: sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}), 0)`,
+      transactionCount: sql<number>`COUNT(*)`,
+      distinctExporters: sql<number>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
+      distinctImporters: sql<number>`COUNT(DISTINCT ${tradeRecords.companyId})`,
+    })
+    .from(tradeRecords)
+    .where(and(...conditions));
+
+  const topExporters = await db
+    .select({
+      name: tradeRecords.exporterNameRaw,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      shipmentCount: sql<number>`COUNT(*)`,
+    })
+    .from(tradeRecords)
+    .where(and(...conditions))
+    .groupBy(tradeRecords.exporterNameRaw)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+    .limit(20);
+
+  const topImporters = await db
+    .select({
+      companyId: tradeRecords.companyId,
+      name: companies.name,
+      leadScore: companyProjects.leadScore,
+      leadScoreLabel: companyProjects.leadScoreLabel,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      shipmentCount: sql<number>`COUNT(*)`,
+    })
+    .from(tradeRecords)
+    .leftJoin(companies, eq(companies.id, tradeRecords.companyId))
+    .leftJoin(companyProjects, eq(companyProjects.companyId, tradeRecords.companyId))
+    .where(and(...conditions))
+    .groupBy(tradeRecords.companyId, companies.name, companyProjects.leadScore, companyProjects.leadScoreLabel)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+    .limit(20);
+
+  return { kpis, topExporters, topImporters };
+}
+
+export async function getProductAnalysis(organizationId: number, hsCode: string) {
+  const conditions = [eq(tradeRecords.organizationId, organizationId), eq(tradeRecords.hsCode, hsCode)];
+
+  const [kpis] = await db
+    .select({
+      totalValueUsd: sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}), 0)`,
+      transactionCount: sql<number>`COUNT(*)`,
+      distinctCountries: sql<number>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+      distinctImporters: sql<number>`COUNT(DISTINCT ${tradeRecords.companyId})`,
+      productDescription: sql<string>`MIN(${tradeRecords.productDescription})`,
+    })
+    .from(tradeRecords)
+    .where(and(...conditions));
+
+  const byCountry = await db
+    .select({
+      country: tradeRecords.importerCountry,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      shipmentCount: sql<number>`COUNT(*)`,
+    })
+    .from(tradeRecords)
+    .where(and(...conditions))
+    .groupBy(tradeRecords.importerCountry)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+    .limit(20);
+
+  const topImporters = await db
+    .select({
+      companyId: tradeRecords.companyId,
+      name: companies.name,
+      country: companies.country,
+      leadScore: companyProjects.leadScore,
+      leadScoreLabel: companyProjects.leadScoreLabel,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+    })
+    .from(tradeRecords)
+    .leftJoin(companies, eq(companies.id, tradeRecords.companyId))
+    .leftJoin(companyProjects, eq(companyProjects.companyId, tradeRecords.companyId))
+    .where(and(...conditions))
+    .groupBy(tradeRecords.companyId, companies.name, companies.country, companyProjects.leadScore, companyProjects.leadScoreLabel)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+    .limit(20);
+
+  return { kpis, byCountry, topImporters };
+}
+
 export async function getCompanyDetail(organizationId: number, companyId: number) {
   const [company] = await db
     .select()
