@@ -1,11 +1,13 @@
 import { getSession } from "@/lib/auth";
-import { getDashboardStats } from "@/lib/queries";
+import { getDashboardStats, getCountryMapData } from "@/lib/queries";
 import { KpiCard, ScoreBadge, PageHeader, formatUsd, EmptyState } from "@/components/ui";
+import { ExportWorldMap } from "@/components/WorldMap";
 import Link from "next/link";
 
 export default async function DashboardPage() {
   const session = await getSession();
   const stats = await getDashboardStats(session!.organizationId);
+  const mapPoints = await getCountryMapData(session!.organizationId);
 
   return (
     <div className="p-8 max-w-6xl">
@@ -23,6 +25,12 @@ export default async function DashboardPage() {
         />
         <KpiCard label="Toplam İthalat Hacmi" value={formatUsd(stats.totalValueUsd)} />
         <KpiCard label="Toplam Sevkiyat Kaydı" value={stats.totalRecords.toLocaleString("tr-TR")} />
+      </div>
+
+      <div className="bg-white rounded-lg border border-slate-200 p-5 mb-6">
+        <h2 className="text-sm font-semibold text-slate-900 mb-1">Dünya Haritası — İthalat Hacmi</h2>
+        <p className="text-xs text-slate-400 mb-2">Bir ülkeye tıklayarak detaylı analize gidebilirsiniz.</p>
+        <ExportWorldMap points={mapPoints} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

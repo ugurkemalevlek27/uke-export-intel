@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { companies, companyProjects, tradeRecords, projects, importBatches } from "@/db/schema";
 import { and, eq, sql, desc, isNull } from "drizzle-orm";
+import { countryNameToIso2 } from "./countryCodes";
 
 export async function getDashboardStats(organizationId: number) {
   const [totals] = await db
@@ -113,6 +114,39 @@ export async function getCompaniesList(organizationId: number, filters: CompanyL
 // tarzi drill-down raporlar icin. "Firma/Alici Analizi" zaten Firmalar sayfasinda
 // (getCompaniesList / getCompanyDetail) karsilaniyor, burada tekrar yazilmiyor.
 // ---------------------------------------------------------------------------
+
+export interface CountryMapPoint {
+  code: string; // kucuk harfli ISO2 (react-svg-worldmap formati)
+  value: number;
+  rawCountry: string; // /analiz sayfasina link vermek icin kullanilan orijinal deger (en yuksek hacimli varyant)
+}
+
+/**
+ * Dashboard'daki dunya haritasi icin ulke bazinda toplam ithalat hacmini
+ * ISO2 koduna gore gruplar. Ayni ISO2 koduna eslesen birden fazla ham deger
+ * varsa (ornegin "Turkey" ve "TURKIYE" ayni dosyada farkli yazilmissa)
+ * degerleri toplar ve en yuksek hacimli ham degeri /analiz linki icin saklar.
+ */
+export async function getCountryMapData(organizationId: number): Promise<CountryMapPoint[]> {
+  const rows = await getDistinctCountries(organizationId);
+
+  const byCode = new Map<string, CountryMapPoint>();
+  for (const row of rows) {
+    const code = countryNameToIso2(row.country);
+    if (!code || !row.country) continue;
+    const value = Number(row.totalValueUsd) || 0;
+    const existing = byCode.get(code);
+    if (!existing) {
+      byCode.set(code, { code, value, rawCountry: row.country });
+    } else {
+      existing.value += value;
+      // rows zaten hacme gore azalan sirali geldigi icin ilk gorulen varyant
+      // otomatik olarak en yuksek hacimli olur; rawCountry'i degistirmiyoruz.
+    }
+  }
+
+  return Array.from(byCode.values()).sort((a, b) => b.value - a.value);
+}
 
 export async function getDistinctCountries(organizationId: number) {
   const rows = await db
