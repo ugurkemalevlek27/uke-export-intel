@@ -3,6 +3,12 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Uygulama arayuzu her zaman acik (light) tema icin tasarlandi. Bunu
+     belirtmezsek, tarayici/isletim sistemi karanlik modu acikken native
+     form kontrollerini (ornek: <select> acilir listesi) kendi karanlik
+     temasiyla gosteriyor ve bizim metin renklerimizle karisip metnin
+     okunmaz hale gelmesine (beyaz/soluk yazi) neden oluyordu. */
+  color-scheme: light;
 }
 
 @theme inline {
@@ -10,13 +16,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {

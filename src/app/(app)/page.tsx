@@ -89,36 +89,6 @@ export default async function DashboardPage() {
           )}
         </div>
       </div>
-
-      {stats.recentImports.length > 0 && (
-        <div className="bg-white rounded-lg border border-slate-200 p-5 mt-6">
-          <h2 className="text-sm font-semibold text-slate-900 mb-4">Son İçe Aktarmalar</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
-                <th className="pb-2 font-medium">Dosya</th>
-                <th className="pb-2 font-medium">Satır</th>
-                <th className="pb-2 font-medium">Başarılı</th>
-                <th className="pb-2 font-medium">Olası Duplicate</th>
-                <th className="pb-2 font-medium">Tarih</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.recentImports.map((imp) => (
-                <tr key={imp.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-2 text-slate-700">{imp.fileName}</td>
-                  <td className="py-2 text-slate-500">{imp.rowCount}</td>
-                  <td className="py-2 text-slate-500">{imp.successCount}</td>
-                  <td className="py-2 text-slate-500">{imp.duplicateCount}</td>
-                  <td className="py-2 text-slate-400 text-xs">
-                    {imp.createdAt ? new Date(imp.createdAt).toLocaleDateString("tr-TR") : "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
