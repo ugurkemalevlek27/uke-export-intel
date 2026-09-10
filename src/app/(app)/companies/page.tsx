@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { getCompaniesList } from "@/lib/queries";
+import { getActiveProjectId } from "@/lib/projectContext";
 import { PageHeader, ScoreBadge, EmptyState } from "@/components/ui";
 import Link from "next/link";
 
@@ -29,18 +30,40 @@ const STATUS_LABELS: Record<string, string> = {
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; minScore?: string }>;
+  searchParams: Promise<{ search?: string; minScore?: string; page?: string }>;
 }) {
   const session = await getSession();
   const params = await searchParams;
-  const companiesList = await getCompaniesList(session!.organizationId, {
-    search: params.search,
-    minScore: params.minScore ? Number(params.minScore) : undefined,
-  });
+  // Aktif proje (client workspace) context'i - sol menudeki secici belirler.
+  const projectId = await getActiveProjectId(session!.organizationId);
+  const page = params.page && /^\d+$/.test(params.page) ? Number(params.page) : 1;
+
+  const result = await getCompaniesList(
+    session!.organizationId,
+    {
+      projectId,
+      search: params.search,
+      minScore: params.minScore ? Number(params.minScore) : undefined,
+    },
+    { page, pageSize: 50 }
+  );
+  const companiesList = result.rows;
+
+  const pageLink = (p: number) => {
+    const q = new URLSearchParams();
+    if (params.search) q.set("search", params.search);
+    if (params.minScore) q.set("minScore", params.minScore);
+    if (p > 1) q.set("page", String(p));
+    const s = q.toString();
+    return s ? `/companies?${s}` : "/companies";
+  };
 
   return (
     <div className="p-8 max-w-6xl">
-      <PageHeader title="Firmalar" description={`${companiesList.length} firma listeleniyor`} />
+      <PageHeader
+        title="Firmalar"
+        description={`${result.totalRows.toLocaleString("tr-TR")} firma · sayfa ${result.page}/${result.totalPages}`}
+      />
 
       <form className="flex gap-3 mb-5">
         <input
@@ -102,6 +125,33 @@ export default async function CompaniesPage({
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {result.totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 text-sm">
+          <span className="text-slate-500">
+            {(result.page - 1) * result.pageSize + 1}–
+            {Math.min(result.page * result.pageSize, result.totalRows)} / {result.totalRows}
+          </span>
+          <div className="flex gap-2">
+            {result.page > 1 && (
+              <Link
+                href={pageLink(result.page - 1)}
+                className="border border-slate-300 rounded-md px-3 py-1.5 hover:bg-white"
+              >
+                ← Önceki
+              </Link>
+            )}
+            {result.page < result.totalPages && (
+              <Link
+                href={pageLink(result.page + 1)}
+                className="border border-slate-300 rounded-md px-3 py-1.5 hover:bg-white"
+              >
+                Sonraki →
+              </Link>
+            )}
+          </div>
         </div>
       )}
     </div>

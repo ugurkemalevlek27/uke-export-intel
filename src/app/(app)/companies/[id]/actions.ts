@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db";
-import { companyProjects, companies } from "@/db/schema";
+import { companyProjects, companies, isLeadStatus } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
@@ -22,7 +22,9 @@ export async function updateCrmFields(companyProjectId: number, formData: FormDa
     .where(and(eq(companyProjects.id, companyProjectId), eq(companies.organizationId, session.organizationId)));
   if (!owned) throw new Error("Bu kayda erişim yetkiniz yok.");
 
-  const leadStatus = String(formData.get("leadStatus") ?? "yeni");
+  const leadStatusRaw = String(formData.get("leadStatus") ?? "yeni");
+  // Gecersiz bir durum gonderilirse guvenli varsayilana duser (enum ihlali olmaz).
+  const leadStatus = isLeadStatus(leadStatusRaw) ? leadStatusRaw : "yeni";
   const salesOwner = String(formData.get("salesOwner") ?? "");
   const notes = String(formData.get("notes") ?? "");
   const nextFollowupDate = String(formData.get("nextFollowupDate") ?? "");
@@ -30,7 +32,7 @@ export async function updateCrmFields(companyProjectId: number, formData: FormDa
   await db
     .update(companyProjects)
     .set({
-      leadStatus: leadStatus as any,
+      leadStatus,
       salesOwner: salesOwner || null,
       notes: notes || null,
       nextFollowupDate: nextFollowupDate || null,

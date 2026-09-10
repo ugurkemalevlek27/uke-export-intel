@@ -52,17 +52,41 @@ export const users = pgTable("users", {
 // Projects  (orn: "Boya - Gurcistan", "Ambalaj Filmleri - Kazakistan")
 // ---------------------------------------------------------------------------
 
-export const projects = pgTable("projects", {
-  id: serial("id").primaryKey(),
-  organizationId: integer("organization_id")
-    .notNull()
-    .references(() => organizations.id),
-  name: text("name").notNull(),
-  description: text("description"),
-  targetCountries: text("target_countries").array(),
-  hsCodes: text("hs_codes").array(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const projectStatusEnum = pgEnum("project_status", [
+  "active",
+  "paused",
+  "completed",
+  "archived",
+]);
+
+export const projects = pgTable(
+  "projects",
+  {
+    id: serial("id").primaryKey(),
+    organizationId: integer("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    name: text("name").notNull(),
+    description: text("description"),
+    targetCountries: text("target_countries").array(),
+    hsCodes: text("hs_codes").array(),
+    // --- Client workspace alanlari (Phase 1) ---
+    // Hepsi nullable: mevcut projeler bozulmadan calismaya devam eder.
+    clientName: text("client_name"), // orn: "ACC Ambalaj", "Coral Paints"
+    productGroup: varchar("product_group", { length: 150 }), // orn: "Mattress Packaging"
+    currency: varchar("currency", { length: 10 }).default("USD"),
+    dateFrom: date("date_from"),
+    dateTo: date("date_to"),
+    status: projectStatusEnum("status").default("active").notNull(),
+    createdBy: integer("created_by").references(() => users.id),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    orgIdx: index("projects_org_idx").on(table.organizationId),
+    orgStatusIdx: index("projects_org_status_idx").on(table.organizationId, table.status),
+  })
+);
 
 // ---------------------------------------------------------------------------
 // Companies  (global firma kaydi - projeden bagimsiz)
@@ -92,6 +116,8 @@ export const companies = pgTable(
   (table) => ({
     nameIdx: index("companies_name_idx").on(table.name),
     orgIdx: index("companies_org_idx").on(table.organizationId),
+    orgCountryIdx: index("companies_org_country_idx").on(table.organizationId, table.country),
+    dupIdx: index("companies_possible_duplicate_idx").on(table.possibleDuplicateOfId),
   })
 );
 
@@ -122,6 +148,14 @@ export const leadStatusEnum = pgEnum("lead_status", [
   "uygun_degil",
 ]);
 
+/** leadStatusEnum'dan turetilen tip - "as any" kullanmadan tip guvenli atama icin. */
+export type LeadStatus = (typeof leadStatusEnum.enumValues)[number];
+
+/** Serbest metin bir degerin gecerli bir LeadStatus olup olmadigini dogrular. */
+export function isLeadStatus(value: string): value is LeadStatus {
+  return (leadStatusEnum.enumValues as readonly string[]).includes(value);
+}
+
 export const companyProjects = pgTable(
   "company_projects",
   {
@@ -148,6 +182,14 @@ export const companyProjects = pgTable(
     uniqCompanyProject: uniqueIndex("company_project_unique").on(
       table.companyId,
       table.projectId
+    ),
+    projectScoreIdx: index("company_projects_project_score_idx").on(
+      table.projectId,
+      table.leadScore
+    ),
+    projectStatusIdx: index("company_projects_project_status_idx").on(
+      table.projectId,
+      table.leadStatus
     ),
   })
 );
@@ -241,9 +283,34 @@ export const tradeRecords = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => ({
+    // --- Mevcut (V1) indexler: korunuyor ---
     hsIdx: index("trade_hs_idx").on(table.hsCode),
     companyIdx: index("trade_company_idx").on(table.companyId),
     dateIdx: index("trade_date_idx").on(table.transactionDate),
     orgIdx: index("trade_org_idx").on(table.organizationId),
+
+    // --- Phase 1: composite indexler ---
+    // Her analiz sorgusu organization_id + project_id ile scope edildigi icin
+    // bu ikili neredeyse tum WHERE'lerin basinda yer aliyor.
+    orgProjectIdx: index("trade_org_project_idx").on(table.organizationId, table.projectId),
+    orgProjectDateIdx: index("trade_org_project_date_idx").on(
+      table.organizationId,
+      table.projectId,
+      table.transactionDate
+    ),
+    orgImporterCountryIdx: index("trade_org_importer_country_idx").on(
+      table.organizationId,
+      table.importerCountry
+    ),
+    orgExporterCountryIdx: index("trade_org_exporter_country_idx").on(
+      table.organizationId,
+      table.exporterCountry
+    ),
+    orgHs4Idx: index("trade_org_hs4_idx").on(table.organizationId, table.hsCode4),
+    orgHs6Idx: index("trade_org_hs6_idx").on(table.organizationId, table.hsCode6),
+    // Tedarikci/rakip analizi exporter_name_raw uzerinde grupluyor - V1'de hic index yoktu.
+    exporterNameIdx: index("trade_exporter_name_idx").on(table.exporterNameRaw),
+    companyProjectIdx: index("trade_company_project_idx").on(table.companyId, table.projectId),
+    batchIdx: index("trade_batch_idx").on(table.importBatchId),
   })
 );

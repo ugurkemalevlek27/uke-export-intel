@@ -37,8 +37,9 @@ async function parseXlsxBuffer(buffer: Buffer): Promise<Record<string, unknown>[
       const header = headers[col];
       if (!header) continue;
       let val = values[col];
-      if (val && typeof val === "object" && "text" in (val as any)) {
-        val = (val as any).text;
+      // ExcelJS zengin metin (rich text) hucrelerini { text: string } olarak dondurur.
+      if (val && typeof val === "object" && "text" in val) {
+        val = (val as { text: unknown }).text;
       }
       obj[header] = val;
     }
