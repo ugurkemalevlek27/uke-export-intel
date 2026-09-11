@@ -11,8 +11,9 @@
 
 import { db } from "@/db";
 import { companies, companyProjects, tradeRecords } from "@/db/schema";
-import { and, desc, asc, eq, sql } from "drizzle-orm";
+import { and, desc, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { tradeWhere, tradeConditionsSql, type TradeFilters } from "./filters";
+import { calculateTargetMarketScore, type TargetMarketScore } from "./targetMarketScoring";
 
 // ---------------------------------------------------------------------------
 // KPI'lar
@@ -972,3 +973,509 @@ export async function getDashboardOverview(
 }
 
 export { CLOSED_LEAD_STATUSES };
+
+// ---------------------------------------------------------------------------
+// Phase 3: Company Intelligence
+// ---------------------------------------------------------------------------
+
+export interface SupplierRow {
+  supplier: string | null;
+  country: string | null;
+  totalValueUsd: number;
+  transactionCount: number;
+  shipmentCount: number;
+  sharePct: number;
+  productCount: number;
+  firstShipment: string | null;
+  lastShipment: string | null;
+}
+
+export interface CompanyIntelligence {
+  company: {
+    id: number;
+    name: string;
+    country: string | null;
+    city: string | null;
+    website: string | null;
+    sector: string | null;
+    companyType: string | null;
+    rawNameVariants: string[] | null;
+    possibleDuplicateOfId: number | null;
+  };
+  crm: {
+    companyProjectId: number;
+    projectId: number;
+    leadScore: number | null;
+    leadScoreLabel: string | null;
+    leadScoreBreakdown: string | null;
+    leadStatus: string;
+    salesOwner: string | null;
+    nextFollowupDate: string | null;
+    lastContactDate: string | null;
+    notes: string | null;
+  } | null;
+  kpis: TradeKpis;
+  suppliers: SupplierRow[];
+  /** En buyuk tedarikcinin toplam alim icindeki payi (%) */
+  supplierConcentrationPct: number;
+  /** Herfindahl-Hirschman Index (0-10000): 2500+ = yuksek yogunlasma */
+  supplierHhi: number;
+  supplierCountries: { country: string | null; totalValueUsd: number }[];
+  products: { hsCode: string; description: string | null; totalValueUsd: number; transactionCount: number }[];
+  yearlyTrend: TrendPoint[];
+  monthlyTrend: TrendPoint[];
+  recentTransactions: TransactionRow[];
+}
+
+/**
+ * Bir firmanin tam istihbarat profili.
+ *
+ * GUVENLIK: Firma once organizationId ile dogrulanir; sahibi degilse null doner.
+ * Tum alt sorgular da organizationId ile scope edilir (savunma derinligi -
+ * yalnizca companyId ile filtrelemek yeterli sayilmaz).
+ */
+export async function getCompanyIntelligence(
+  organizationId: number,
+  companyId: number,
+  filters: TradeFilters
+): Promise<CompanyIntelligence | null> {
+  const [company] = await db
+    .select({
+      id: companies.id,
+      name: companies.name,
+      country: companies.country,
+      city: companies.city,
+      website: companies.website,
+      sector: companies.sector,
+      companyType: companies.companyType,
+      rawNameVariants: companies.rawNameVariants,
+      possibleDuplicateOfId: companies.possibleDuplicateOfId,
+    })
+    .from(companies)
+    .where(and(eq(companies.id, companyId), eq(companies.organizationId, organizationId)))
+    .limit(1);
+  if (!company) return null;
+
+  // Bu firmaya ait kayitlar, mevcut filtreler + firma kosulu
+  const scoped: TradeFilters = { ...filters };
+  const where = and(tradeWhere(organizationId, scoped), eq(tradeRecords.companyId, companyId))!;
+
+  const [kpis, crmRow] = await Promise.all([
+    getTradeKpis(organizationId, { ...scoped }).then(async () => {
+      // KPI'lari firma kosuluyla yeniden hesapla
+      const [row] = await db
+        .select({
+          totalValueUsd: sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}), 0)`,
+          totalShipments: sql<string>`COALESCE(SUM(${tradeRecords.shipments}), 0)`,
+          transactionCount: sql<string>`COUNT(*)`,
+          importerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
+          exporterCount: sql<string>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
+          hsCodeCount: sql<string>`COUNT(DISTINCT ${tradeRecords.hsCode})`,
+          countryCount: sql<string>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+          firstTransactionDate: sql<string | null>`MIN(${tradeRecords.transactionDate})`,
+          lastTransactionDate: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
+        })
+        .from(tradeRecords)
+        .where(where);
+      const totalValueUsd = Number(row?.totalValueUsd ?? 0);
+      const transactionCount = Number(row?.transactionCount ?? 0);
+      return {
+        totalValueUsd,
+        totalShipments: Number(row?.totalShipments ?? 0),
+        transactionCount,
+        importerCount: Number(row?.importerCount ?? 0),
+        exporterCount: Number(row?.exporterCount ?? 0),
+        hsCodeCount: Number(row?.hsCodeCount ?? 0),
+        countryCount: Number(row?.countryCount ?? 0),
+        avgShipmentValueUsd: transactionCount > 0 ? totalValueUsd / transactionCount : 0,
+        firstTransactionDate: row?.firstTransactionDate ?? null,
+        lastTransactionDate: row?.lastTransactionDate ?? null,
+      } satisfies TradeKpis;
+    }),
+    db
+      .select({
+        companyProjectId: companyProjects.id,
+        projectId: companyProjects.projectId,
+        leadScore: companyProjects.leadScore,
+        leadScoreLabel: companyProjects.leadScoreLabel,
+        leadScoreBreakdown: companyProjects.leadScoreBreakdown,
+        leadStatus: companyProjects.leadStatus,
+        salesOwner: companyProjects.salesOwner,
+        nextFollowupDate: companyProjects.nextFollowupDate,
+        lastContactDate: companyProjects.lastContactDate,
+        notes: companyProjects.notes,
+      })
+      .from(companyProjects)
+      .where(
+        and(
+          eq(companyProjects.companyId, companyId),
+          ...(filters.projectId === undefined ? [] : [eq(companyProjects.projectId, filters.projectId)])
+        )
+      )
+      .orderBy(desc(companyProjects.leadScore))
+      .limit(1)
+      .then((r) => r[0] ?? null),
+  ]);
+
+  // --- Tedarikci analizi ---
+  const supplierRows = await db
+    .select({
+      supplier: tradeRecords.exporterNameRaw,
+      country: sql<string | null>`MIN(${tradeRecords.exporterCountry})`,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      transactionCount: sql<string>`COUNT(*)`,
+      shipmentCount: sql<string>`COALESCE(SUM(${tradeRecords.shipments}), 0)`,
+      productCount: sql<string>`COUNT(DISTINCT ${tradeRecords.hsCode})`,
+      firstShipment: sql<string | null>`MIN(${tradeRecords.transactionDate})`,
+      lastShipment: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
+    })
+    .from(tradeRecords)
+    .where(where)
+    .groupBy(tradeRecords.exporterNameRaw)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`));
+
+  const supplierTotal = supplierRows.reduce((a, r) => a + (Number(r.totalValueUsd) || 0), 0);
+  const suppliers: SupplierRow[] = supplierRows.map((r) => {
+    const v = Number(r.totalValueUsd) || 0;
+    return {
+      supplier: r.supplier,
+      country: r.country,
+      totalValueUsd: v,
+      transactionCount: Number(r.transactionCount) || 0,
+      shipmentCount: Number(r.shipmentCount) || 0,
+      sharePct: supplierTotal > 0 ? (v / supplierTotal) * 100 : 0,
+      productCount: Number(r.productCount) || 0,
+      firstShipment: r.firstShipment ?? null,
+      lastShipment: r.lastShipment ?? null,
+    };
+  });
+
+  // Yogunlasma: en buyuk tedarikcinin payi + HHI (paylarin karelerinin toplami)
+  const supplierConcentrationPct = suppliers.length > 0 ? suppliers[0].sharePct : 0;
+  const supplierHhi = Math.round(suppliers.reduce((a, s) => a + s.sharePct * s.sharePct, 0));
+
+  const [supplierCountriesRaw, productRows, yearlyTrend, monthlyTrend, recent] = await Promise.all([
+    db
+      .select({
+        country: tradeRecords.exporterCountry,
+        totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      })
+      .from(tradeRecords)
+      .where(where)
+      .groupBy(tradeRecords.exporterCountry)
+      .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`)),
+    db
+      .select({
+        hsCode: tradeRecords.hsCode,
+        totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+        transactionCount: sql<string>`COUNT(*)`,
+      })
+      .from(tradeRecords)
+      .where(where)
+      .groupBy(tradeRecords.hsCode)
+      .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+      .limit(25),
+    trendFor(where, "year"),
+    trendFor(where, "month"),
+    db
+      .select({
+        id: tradeRecords.id,
+        transactionDate: tradeRecords.transactionDate,
+        companyId: tradeRecords.companyId,
+        importerName: tradeRecords.importerNameRaw,
+        importerCountry: tradeRecords.importerCountry,
+        exporterName: tradeRecords.exporterNameRaw,
+        exporterCountry: tradeRecords.exporterCountry,
+        hsCode: tradeRecords.hsCode,
+        productDescription: tradeRecords.productDescription,
+        quantity: tradeRecords.quantity,
+        unit: tradeRecords.unit,
+        weightMt: tradeRecords.weightMt,
+        valueUsd: tradeRecords.valueUsd,
+        shipments: tradeRecords.shipments,
+        sourceFile: tradeRecords.sourceFile,
+        importBatchId: tradeRecords.importBatchId,
+      })
+      .from(tradeRecords)
+      .where(where)
+      .orderBy(desc(tradeRecords.transactionDate))
+      .limit(25),
+  ]);
+
+  // Her GTIP icin temsilci aciklama
+  const products = await Promise.all(
+    productRows.map(async (p) => ({
+      hsCode: p.hsCode,
+      description: await getRepresentativeDescription(organizationId, { ...scoped, hsCode: p.hsCode }),
+      totalValueUsd: Number(p.totalValueUsd) || 0,
+      transactionCount: Number(p.transactionCount) || 0,
+    }))
+  );
+
+  return {
+    company,
+    crm: crmRow
+      ? {
+          ...crmRow,
+          leadStatus: String(crmRow.leadStatus),
+        }
+      : null,
+    kpis,
+    suppliers,
+    supplierConcentrationPct,
+    supplierHhi,
+    supplierCountries: supplierCountriesRaw.map((r) => ({
+      country: r.country,
+      totalValueUsd: Number(r.totalValueUsd) || 0,
+    })),
+    products,
+    yearlyTrend,
+    monthlyTrend,
+    recentTransactions: recent,
+  };
+}
+
+/** Verilen WHERE kosulu icin donem bazli trend (firma-ici kullanim). */
+async function trendFor(where: SQL, granularity: "year" | "month"): Promise<TrendPoint[]> {
+  const fmt = sql.raw(granularity === "year" ? "'YYYY'" : "'YYYY-MM'");
+  const period = sql<string>`to_char(${tradeRecords.transactionDate}, ${fmt})`;
+  const rows = await db
+    .select({
+      period,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      transactionCount: sql<string>`COUNT(*)`,
+    })
+    .from(tradeRecords)
+    .where(and(where, sql`${tradeRecords.transactionDate} IS NOT NULL`))
+    .groupBy(period)
+    .orderBy(asc(period));
+  return rows.map((r) => ({
+    period: r.period,
+    totalValueUsd: Number(r.totalValueUsd) || 0,
+    transactionCount: Number(r.transactionCount) || 0,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Hedef Pazar Analizi
+// ---------------------------------------------------------------------------
+
+export interface TargetMarketRow {
+  country: string;
+  totalValueUsd: number;
+  transactionCount: number;
+  importerCount: number;
+  supplierCount: number;
+  avgShipmentValueUsd: number;
+  sourceSharePct: number;
+  growthRatio: number | null;
+  daysSinceLastTransaction: number | null;
+  score: TargetMarketScore;
+}
+
+/**
+ * Her ulke icin hedef pazar faktorlerini hesaplar ve skorlar.
+ *
+ * Buyume: veri kumesindeki tarih araligi ikiye bolunur; son yarinin toplami
+ * onceki yariyla karsilastirilir. Tek donemlik veri varsa buyume hesaplanamaz
+ * ve 0 puan alir (bu durum kullaniciya acikca yazilir).
+ */
+export async function getTargetMarkets(
+  organizationId: number,
+  filters: TradeFilters
+): Promise<TargetMarketRow[]> {
+  const where = tradeWhere(organizationId, filters);
+
+  // Veri kumesinin tarih araligi (buyume icin orta nokta)
+  const [span] = await db
+    .select({
+      minDate: sql<string | null>`MIN(${tradeRecords.transactionDate})`,
+      maxDate: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
+    })
+    .from(tradeRecords)
+    .where(where);
+
+  let midpoint: string | null = null;
+  if (span?.minDate && span?.maxDate && span.minDate !== span.maxDate) {
+    const a = new Date(span.minDate).getTime();
+    const b = new Date(span.maxDate).getTime();
+    midpoint = new Date(a + (b - a) / 2).toISOString().slice(0, 10);
+  }
+
+  const rows = await db
+    .select({
+      country: tradeRecords.importerCountry,
+      totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
+      transactionCount: sql<string>`COUNT(*)`,
+      importerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
+      supplierCount: sql<string>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
+      lastTransactionDate: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
+      sourceValueUsd: sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}) FILTER (WHERE ${tradeRecords.exporterCountry} ~* 'turk|türk'), 0)`,
+      recentValueUsd: midpoint
+        ? sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}) FILTER (WHERE ${tradeRecords.transactionDate} >= ${midpoint}), 0)`
+        : sql<string>`0`,
+      earlierValueUsd: midpoint
+        ? sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}) FILTER (WHERE ${tradeRecords.transactionDate} < ${midpoint}), 0)`
+        : sql<string>`0`,
+    })
+    .from(tradeRecords)
+    .where(where)
+    .groupBy(tradeRecords.importerCountry)
+    .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`));
+
+  const parsed = rows
+    .filter((r) => !!r.country)
+    .map((r) => {
+      const total = Number(r.totalValueUsd) || 0;
+      const source = Number(r.sourceValueUsd) || 0;
+      const recent = Number(r.recentValueUsd) || 0;
+      const earlier = Number(r.earlierValueUsd) || 0;
+      return {
+        country: r.country as string,
+        totalValueUsd: total,
+        transactionCount: Number(r.transactionCount) || 0,
+        importerCount: Number(r.importerCount) || 0,
+        supplierCount: Number(r.supplierCount) || 0,
+        lastTransactionDate: r.lastTransactionDate ?? null,
+        sourceSharePct: total > 0 ? (source / total) * 100 : 0,
+        growthRatio: midpoint && earlier > 0 ? (recent - earlier) / earlier : null,
+      };
+    });
+
+  if (parsed.length === 0) return [];
+
+  // Guncellik: veri setindeki en son tarihi referans al (bugunun tarihi degil -
+  // veri gecmise ait olabilir, bu yuzden "veri setine gore guncellik" olculur).
+  const datasetMaxMs = Math.max(
+    ...parsed.map((p) => (p.lastTransactionDate ? new Date(p.lastTransactionDate).getTime() : 0)),
+    0
+  );
+  const daysSince = parsed.map((p) =>
+    p.lastTransactionDate && datasetMaxMs > 0
+      ? Math.round((datasetMaxMs - new Date(p.lastTransactionDate).getTime()) / 86_400_000)
+      : null
+  );
+
+  const maxValue = Math.max(...parsed.map((p) => p.totalValueUsd), 1);
+  const maxImporters = Math.max(...parsed.map((p) => p.importerCount), 1);
+  const maxTransactions = Math.max(...parsed.map((p) => p.transactionCount), 1);
+  const maxSuppliers = Math.max(...parsed.map((p) => p.supplierCount), 1);
+  const maxDays = Math.max(...daysSince.map((d) => d ?? 0), 1);
+
+  return parsed
+    .map((p, i) => {
+      const avg = p.transactionCount > 0 ? p.totalValueUsd / p.transactionCount : 0;
+      const score = calculateTargetMarketScore({
+        country: p.country,
+        totalValueUsd: p.totalValueUsd,
+        transactionCount: p.transactionCount,
+        importerCount: p.importerCount,
+        supplierCount: p.supplierCount,
+        avgShipmentValueUsd: avg,
+        sourceSharePct: p.sourceSharePct,
+        growthRatio: p.growthRatio,
+        daysSinceLastTransaction: daysSince[i],
+        maxValueUsdInDataset: maxValue,
+        maxImporterCountInDataset: maxImporters,
+        maxTransactionCountInDataset: maxTransactions,
+        maxSupplierCountInDataset: maxSuppliers,
+        maxDaysSinceInDataset: maxDays,
+      });
+      return {
+        country: p.country,
+        totalValueUsd: p.totalValueUsd,
+        transactionCount: p.transactionCount,
+        importerCount: p.importerCount,
+        supplierCount: p.supplierCount,
+        avgShipmentValueUsd: avg,
+        sourceSharePct: p.sourceSharePct,
+        growthRatio: p.growthRatio,
+        daysSinceLastTransaction: daysSince[i],
+        score,
+      } satisfies TargetMarketRow;
+    })
+    .sort((a, b) => b.score.total - a.score.total);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Rakip iliskileri (rakip x ulke / rakip x urun matrisi)
+// ---------------------------------------------------------------------------
+
+export interface CompetitorMatrix {
+  competitors: string[];
+  columns: string[];
+  /** cells[rakipIndex][sutunIndex] = deger */
+  cells: number[][];
+  rowTotals: number[];
+  columnTotals: number[];
+}
+
+/**
+ * Rakip (tedarikci) x boyut matrisi. Hangi rakibin hangi pazarda / uründe
+ * guclu oldugunu tek bakista gosterir.
+ */
+export async function getCompetitorMatrix(
+  organizationId: number,
+  filters: TradeFilters,
+  dimension: "country" | "hs4",
+  topCompetitors = 10,
+  topColumns = 8
+): Promise<CompetitorMatrix> {
+  const dimCol = dimension === "country" ? tradeRecords.importerCountry : tradeRecords.hsCode4;
+
+  const [topExp, topDim] = await Promise.all([
+    db
+      .select({ name: tradeRecords.exporterNameRaw, v: sql<string>`SUM(${tradeRecords.valueUsd})` })
+      .from(tradeRecords)
+      .where(and(tradeWhere(organizationId, filters), sql`${tradeRecords.exporterNameRaw} IS NOT NULL`))
+      .groupBy(tradeRecords.exporterNameRaw)
+      .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+      .limit(topCompetitors),
+    db
+      .select({ name: dimCol, v: sql<string>`SUM(${tradeRecords.valueUsd})` })
+      .from(tradeRecords)
+      .where(and(tradeWhere(organizationId, filters), sql`${dimCol} IS NOT NULL`))
+      .groupBy(dimCol)
+      .orderBy(desc(sql`SUM(${tradeRecords.valueUsd})`))
+      .limit(topColumns),
+  ]);
+
+  const competitors = topExp.map((r) => r.name as string);
+  const columns = topDim.map((r) => r.name as string);
+
+  if (competitors.length === 0 || columns.length === 0) {
+    return { competitors, columns, cells: [], rowTotals: [], columnTotals: [] };
+  }
+
+  const pairs = await db
+    .select({
+      exporter: tradeRecords.exporterNameRaw,
+      dim: dimCol,
+      v: sql<string>`SUM(${tradeRecords.valueUsd})`,
+    })
+    .from(tradeRecords)
+    .where(
+      and(
+        tradeWhere(organizationId, filters),
+        inArray(tradeRecords.exporterNameRaw, competitors),
+        inArray(dimCol, columns)
+      )
+    )
+    .groupBy(tradeRecords.exporterNameRaw, dimCol);
+
+  const rowIdx = new Map(competitors.map((c, i) => [c, i]));
+  const colIdx = new Map(columns.map((c, i) => [c, i]));
+  const cells: number[][] = competitors.map(() => columns.map(() => 0));
+
+  for (const p of pairs) {
+    const r = rowIdx.get(p.exporter as string);
+    const c = colIdx.get(p.dim as string);
+    if (r === undefined || c === undefined) continue;
+    cells[r][c] = Number(p.v) || 0;
+  }
+
+  const rowTotals = cells.map((row) => row.reduce((a, v) => a + v, 0));
+  const columnTotals = columns.map((_, ci) => cells.reduce((a, row) => a + row[ci], 0));
+
+  return { competitors, columns, cells, rowTotals, columnTotals };
+}

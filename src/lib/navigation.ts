@@ -40,14 +40,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Ürün / GTİP Analizi", href: "/trade/products", status: "ready" },
       { label: "Tedarikçi Analizi", href: "/trade/suppliers", status: "ready" },
       { label: "İşlem Analizi", href: "/trade/transactions", status: "ready" },
-      { label: "Firma Analizi", href: "/trade/companies", status: "planned" },
-      { label: "Rakip Analizi", href: "/trade/competitors", status: "planned" },
+      { label: "Rakip Analizi", href: "/trade/competitors", status: "ready" },
     ],
   },
   {
     title: null,
     items: [
-      { label: "Hedef Pazarlar", href: "/target-markets", status: "planned" },
+      { label: "Hedef Pazarlar", href: "/target-markets", status: "ready" },
       { label: "Firmalar", href: "/companies", status: "ready" },
     ],
   },

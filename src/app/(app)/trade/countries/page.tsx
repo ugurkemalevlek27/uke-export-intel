@@ -94,6 +94,7 @@ export default async function CountryAnalysisPage({
                     <th className="pb-2 font-medium text-right">İthalatçı</th>
                     <th className="pb-2 font-medium text-right">Tedarikçi</th>
                     <th className="pb-2 font-medium text-right">Son İşlem</th>
+                    <th className="pb-2 font-medium text-right">Rapor</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,6 +125,16 @@ export default async function CountryAnalysisPage({
                       <td className="py-2.5 text-right text-slate-500">{c.exporterCount}</td>
                       <td className="py-2.5 text-right text-slate-400 text-xs">
                         {c.lastTransactionDate ?? "Not Available"}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        {c.country && (
+                          <a
+                            href={`/api/report${q ? q + "&" : "?"}type=country&country=${encodeURIComponent(c.country)}`}
+                            className="text-xs text-slate-500 hover:text-slate-900 hover:underline whitespace-nowrap"
+                          >
+                            PDF
+                          </a>
+                        )}
                       </td>
                     </tr>
                   ))}

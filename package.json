@@ -8,10 +8,11 @@
     "start": "next start",
     "lint": "eslint",
     "migrate": "tsx --env-file=.env scripts/migrate.ts",
-    "test": "tsx --test tests/filters.test.ts tests/scoring.test.ts tests/normalize.test.ts",
+    "test": "tsx --test tests/filters.test.ts tests/scoring.test.ts tests/normalize.test.ts tests/target-market-scoring.test.ts",
     "test:db": "tsx --env-file=.env --test tests/tenant-isolation.test.ts tests/analytics-filters.test.ts"
   },
   "dependencies": {
+    "@types/pdfkit": "^0.17.6",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "csv-parse": "^7.0.2",
@@ -19,6 +20,7 @@
     "exceljs": "^4.4.0",
     "jose": "^6.2.10",
     "next": "16.3.3",
+    "pdfkit": "^0.20.2",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

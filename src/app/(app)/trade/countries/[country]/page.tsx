@@ -4,6 +4,7 @@ import { parseTradeFilters, filtersToQuery, type RawSearchParams } from "@/lib/f
 import { getCountryDetail } from "@/lib/analytics";
 import { PageHeader, KpiCard, ScoreBadge, EmptyState, formatUsd } from "@/components/ui";
 import Link from "next/link";
+import { ReportButton } from "@/components/ReportButton";
 
 export default async function CountryDetailPage({
   params,
@@ -47,8 +48,9 @@ export default async function CountryDetailPage({
       <Link href={`/trade/countries${q}`} className="text-xs text-slate-500 hover:underline">
         ← Ülke Analizi
       </Link>
-      <div className="mt-2">
+      <div className="mt-2 flex items-start justify-between gap-4 flex-wrap">
         <PageHeader title={country} description="Ülke detay analizi" />
+        <ReportButton type="country" param={country} query={q} label="Ülke Raporu (PDF)" />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
