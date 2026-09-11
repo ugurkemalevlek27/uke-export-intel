@@ -3,29 +3,8 @@ import { getCompaniesList } from "@/lib/queries";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { PageHeader, ScoreBadge, EmptyState } from "@/components/ui";
 import Link from "next/link";
+import { LEAD_STATUS_LABELS as STATUS_LABELS } from "@/lib/leadStatus";
 
-const STATUS_LABELS: Record<string, string> = {
-  yeni: "Yeni",
-  arastiriliyor: "Araştırılıyor",
-  karar_verici_bulundu: "Karar Verici Bulundu",
-  ilk_temas: "İlk Temas",
-  follow_up: "Follow-up",
-  ilgilendi: "İlgilendi",
-  katalog_gonderildi: "Katalog Gönderildi",
-  numune_talebi: "Numune Talebi",
-  fiyat_talebi: "Fiyat Talebi",
-  teklif_gonderildi: "Teklif Gönderildi",
-  pazarlik: "Pazarlık",
-  siparis_bekleniyor: "Sipariş Bekleniyor",
-  siparis_alindi: "Sipariş Alındı",
-  uretim: "Üretim",
-  sevkiyat: "Sevkiyat",
-  tahsilat: "Tahsilat",
-  tekrar_siparis: "Tekrar Sipariş",
-  kaybedildi: "Kaybedildi",
-  beklemede: "Beklemede",
-  uygun_degil: "Uygun Değil",
-};
 
 export default async function CompaniesPage({
   searchParams,
@@ -65,7 +44,7 @@ export default async function CompaniesPage({
         description={`${result.totalRows.toLocaleString("tr-TR")} firma · sayfa ${result.page}/${result.totalPages}`}
       />
 
-      <form className="flex gap-3 mb-5">
+      <form className="flex flex-wrap gap-3 mb-5">
         <input
           name="search"
           defaultValue={params.search}
@@ -90,7 +69,9 @@ export default async function CompaniesPage({
         <EmptyState text="Bu filtrelere uygun firma bulunamadı." />
       ) : (
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <table className="w-full text-sm">
+          {/* Dar ekranlarda tablo yatay kaydirilabilir - sayfa tasmaz. */}
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="text-left text-xs text-slate-400 border-b border-slate-200 bg-slate-50">
                 <th className="px-4 py-3 font-medium">Firma</th>
@@ -125,6 +106,7 @@ export default async function CompaniesPage({
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

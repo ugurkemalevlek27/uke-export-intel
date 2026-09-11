@@ -107,6 +107,14 @@ export const companies = pgTable(
     sector: varchar("sector", { length: 150 }),
     companyType: varchar("company_type", { length: 50 }), // Importer/Distributor/Manufacturer...
     possibleDuplicateOfId: integer("possible_duplicate_of_id"), // ayni tabloya kendine referans, ELLE onaylanmadan birlestirilmez
+    /**
+     * Bu firma baska bir firmayla BIRLESTIRILDIYSE hedef firmanin id'si.
+     * Kayit SILINMEZ; mezar tasi olarak kalir ve listelerde gosterilmez.
+     * Boylece yanlis birlestirme geri alinabilir ve gecmis izlenebilir kalir.
+     */
+    mergedIntoId: integer("merged_into_id"),
+    mergedAt: timestamp("merged_at"),
+    mergedBy: integer("merged_by"),
     source: varchar("source", { length: 255 }),
     sourceFile: varchar("source_file", { length: 255 }),
     importDate: timestamp("import_date"),
@@ -118,6 +126,7 @@ export const companies = pgTable(
     orgIdx: index("companies_org_idx").on(table.organizationId),
     orgCountryIdx: index("companies_org_country_idx").on(table.organizationId, table.country),
     dupIdx: index("companies_possible_duplicate_idx").on(table.possibleDuplicateOfId),
+    mergedIdx: index("companies_merged_idx").on(table.mergedIntoId),
   })
 );
 
@@ -198,36 +207,62 @@ export const companyProjects = pgTable(
 // Contacts (karar vericiler)
 // ---------------------------------------------------------------------------
 
-export const contacts = pgTable("contacts", {
-  id: serial("id").primaryKey(),
-  companyId: integer("company_id")
-    .notNull()
-    .references(() => companies.id),
-  name: text("name"),
-  position: varchar("position", { length: 150 }),
-  email: varchar("email", { length: 255 }),
-  phone: varchar("phone", { length: 50 }),
-  whatsapp: varchar("whatsapp", { length: 50 }),
-  linkedin: text("linkedin"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: serial("id").primaryKey(),
+    // organizationId savunma derinligi icin eklendi: kisi sorgulari yalnizca
+    // companyId join'ine guvenmek yerine dogrudan organizasyonla sinirlanabilir.
+    organizationId: integer("organization_id").references(() => organizations.id),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companies.id),
+    name: text("name"),
+    position: varchar("position", { length: 150 }),
+    email: varchar("email", { length: 255 }),
+    phone: varchar("phone", { length: 50 }),
+    whatsapp: varchar("whatsapp", { length: 50 }),
+    linkedin: text("linkedin"),
+    isPrimary: boolean("is_primary").default(false),
+    notes: text("notes"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    companyIdx: index("contacts_company_idx").on(table.companyId),
+    orgIdx: index("contacts_org_idx").on(table.organizationId),
+  })
+);
 
 // ---------------------------------------------------------------------------
 // Activities (CRM iletisim gecmisi)
 // ---------------------------------------------------------------------------
 
-export const activities = pgTable("activities", {
-  id: serial("id").primaryKey(),
-  companyProjectId: integer("company_project_id")
-    .notNull()
-    .references(() => companyProjects.id),
-  activityType: varchar("activity_type", { length: 50 }), // email/linkedin/phone/whatsapp/meeting
-  activityDate: timestamp("activity_date").defaultNow().notNull(),
-  result: text("result"),
-  notes: text("notes"),
-  nextAction: text("next_action"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const activities = pgTable(
+  "activities",
+  {
+    id: serial("id").primaryKey(),
+    companyProjectId: integer("company_project_id")
+      .notNull()
+      .references(() => companyProjects.id),
+    contactId: integer("contact_id").references(() => contacts.id),
+    createdBy: integer("created_by").references(() => users.id),
+    activityType: varchar("activity_type", { length: 50 }), // email/linkedin/phone/whatsapp/meeting/note
+    activityDate: timestamp("activity_date").defaultNow().notNull(),
+    result: text("result"),
+    notes: text("notes"),
+    nextAction: text("next_action"),
+    nextFollowupDate: date("next_followup_date"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    companyProjectIdx: index("activities_company_project_idx").on(
+      table.companyProjectId,
+      table.activityDate
+    ),
+    followupIdx: index("activities_followup_idx").on(table.nextFollowupDate),
+  })
+);
 
 // ---------------------------------------------------------------------------
 // Import batches (her import islemi kayit altina alinir - madde 55)
@@ -245,6 +280,10 @@ export const importBatches = pgTable("import_batches", {
   successCount: integer("success_count").default(0),
   errorCount: integer("error_count").default(0),
   duplicateCount: integer("duplicate_count").default(0),
+  /** Ayni icerige sahip oldugu icin ATLANAN sevkiyat sayisi (Phase 4) */
+  skippedDuplicateCount: integer("skipped_duplicate_count").default(0),
+  /** Sihirbazda kullanilan sutun eslesmesi (JSON) - izlenebilirlik icin */
+  columnMapping: text("column_mapping"),
   status: varchar("status", { length: 30 }).default("completed"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -280,6 +319,12 @@ export const tradeRecords = pgTable(
     sourceFile: varchar("source_file", { length: 255 }),
     importBatchId: integer("import_batch_id").references(() => importBatches.id),
     isDataQualityFlagged: boolean("is_data_quality_flagged").default(false),
+    /**
+     * Kaydi benzersiz kilan alanlardan uretilen icerik hash'i (bkz. lib/rowHash.ts).
+     * Ayni dosyanin ikinci kez yuklenmesi durumunda tekrar eden sevkiyatlari
+     * tespit etmek icin kullanilir.
+     */
+    rowHash: varchar("row_hash", { length: 32 }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => ({
@@ -312,5 +357,25 @@ export const tradeRecords = pgTable(
     exporterNameIdx: index("trade_exporter_name_idx").on(table.exporterNameRaw),
     companyProjectIdx: index("trade_company_project_idx").on(table.companyId, table.projectId),
     batchIdx: index("trade_batch_idx").on(table.importBatchId),
+    rowHashIdx: index("trade_row_hash_idx").on(table.organizationId, table.rowHash),
+  })
+);
+
+
+// ---------------------------------------------------------------------------
+// Login denemeleri (giris hiz siniri - Phase 4/5 guvenlik)
+// ---------------------------------------------------------------------------
+
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    id: serial("id").primaryKey(),
+    /** E-posta (kucuk harfe cevrilmis). IP degil: uygulama proxy arkasinda. */
+    identifier: varchar("identifier", { length: 255 }).notNull(),
+    attemptedAt: timestamp("attempted_at").defaultNow().notNull(),
+    success: boolean("success").default(false).notNull(),
+  },
+  (table) => ({
+    idx: index("login_attempts_idx").on(table.identifier, table.attemptedAt),
   })
 );

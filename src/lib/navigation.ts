@@ -53,25 +53,25 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "CRM",
     items: [
-      { label: "Lead'ler", href: "/crm/leads", status: "planned", visibleFor: can.editCrm },
-      { label: "Aktiviteler", href: "/crm/activities", status: "planned", visibleFor: can.editCrm },
-      { label: "Takipler", href: "/crm/follow-ups", status: "planned", visibleFor: can.editCrm },
+      { label: "Lead'ler", href: "/crm/leads", status: "ready", visibleFor: can.editCrm },
+      { label: "Aktiviteler", href: "/crm/activities", status: "ready", visibleFor: can.editCrm },
+      { label: "Takipler", href: "/crm/follow-ups", status: "ready", visibleFor: can.editCrm },
     ],
   },
   {
     title: "Veri",
     items: [
       { label: "Veri İçe Aktar", href: "/import", status: "ready", visibleFor: can.importData },
-      { label: "İçe Aktarma Geçmişi", href: "/data/history", status: "planned", visibleFor: can.importData },
-      { label: "Veri Kalitesi", href: "/data/quality", status: "planned", visibleFor: can.manageDataQuality },
+      { label: "İçe Aktarma Geçmişi", href: "/data/history", status: "ready", visibleFor: can.importData },
+      { label: "Veri Kalitesi", href: "/data/quality", status: "ready", visibleFor: can.manageDataQuality },
     ],
   },
   {
     title: "Yönetim",
     items: [
-      { label: "Projeler", href: "/admin/projects", status: "planned", visibleFor: can.manageProjects },
-      { label: "Kullanıcılar", href: "/admin/users", status: "planned", visibleFor: can.manageUsers },
-      { label: "Ayarlar", href: "/admin/settings", status: "planned", visibleFor: can.manageUsers },
+      { label: "Projeler", href: "/admin/projects", status: "ready", visibleFor: can.manageProjects },
+      { label: "Kullanıcılar", href: "/admin/users", status: "ready", visibleFor: can.manageUsers },
+      { label: "Ayarlar", href: "/admin/settings", status: "ready", visibleFor: can.manageUsers },
     ],
   },
 ];

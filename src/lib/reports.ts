@@ -161,7 +161,12 @@ export async function buildCompanyReport(
   organizationId: number,
   companyId: number,
   filters: TradeFilters,
-  projectLabel: string
+  projectLabel: string,
+  /**
+   * CRM bolumu (lead durumu, satis temsilcisi, notlar) rapora eklensin mi?
+   * Yalnizca CRM yetkisi olan kullanicilar icin true gonderilir.
+   */
+  includeCrm = true
 ): Promise<{ buffer: Buffer; fileName: string } | null> {
   const ci = await getCompanyIntelligence(organizationId, companyId, filters);
   if (!ci) return null;
@@ -298,7 +303,8 @@ export async function buildCompanyReport(
   trendChart(doc, monthlyTrend);
 
   // --- CRM durumu ---
-  if (crm) {
+  // Yetkisi olmayan kullanicinin raporunda bu bolum hic basilmaz.
+  if (crm && includeCrm) {
     sectionTitle(doc, "CRM Durumu");
     table(
       doc,

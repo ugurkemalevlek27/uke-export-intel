@@ -9,6 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { getSession } from "@/lib/auth";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { normalizeRole, can } from "@/lib/roles";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { parseTradeFilters, type RawSearchParams } from "@/lib/filters";
 import {
@@ -18,9 +22,29 @@ import {
   getSupplierList,
   getTopImporters,
 } from "@/lib/analytics";
+import { getLeads, getRecentActivities, getFollowUps, ACTIVITY_TYPE_LABELS } from "@/lib/crm";
+import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
 
 /** Tek seferde disa aktarilabilecek azami satir sayisi (bellek korumasi). */
 const MAX_ROWS = 50_000;
+
+/**
+ * Hangi veri kumesi hangi yetkiyi gerektirir.
+ *
+ * NEDEN BURADA? Bu uc Proxy'nin disindadir ve ekrandaki buton gizlense bile
+ * adres dogrudan cagrilabilir. CRM verisi (lead, aktivite, takip) satis
+ * verisidir; yalnizca analiz yetkisi olan bir "Goruntuleyici" bunu indirememeli.
+ */
+export const DATASET_CAPABILITY: Record<string, keyof typeof can> = {
+  transactions: "viewAnalytics",
+  countries: "viewAnalytics",
+  products: "viewAnalytics",
+  suppliers: "viewAnalytics",
+  importers: "viewAnalytics",
+  leads: "editCrm",
+  activities: "editCrm",
+  "follow-ups": "editCrm",
+};
 
 type Column = { header: string; key: string };
 type Dataset = { columns: Column[]; rows: Record<string, unknown>[]; fileName: string };
@@ -38,6 +62,21 @@ export async function GET(req: NextRequest) {
   const filters = { ...parsed, projectId: parsed.projectId ?? activeProjectId };
 
   const dataset = String(sp.dataset ?? "transactions");
+
+  // Yetki kontrolu: bilinmeyen veri kumesi reddedilir (varsayilan olarak ACIK degil).
+  const capability = DATASET_CAPABILITY[dataset];
+  if (!capability) {
+    return NextResponse.json({ error: "Geçersiz veri kümesi." }, { status: 400 });
+  }
+  const [dbUser] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1);
+  if (!can[capability](normalizeRole(dbUser?.role))) {
+    return NextResponse.json({ error: "Bu veriyi dışa aktarma yetkiniz yok." }, { status: 403 });
+  }
+
   const format = String(sp.format ?? "xlsx") === "csv" ? "csv" : "xlsx";
 
   let data: Dataset;
@@ -163,6 +202,76 @@ async function buildDataset(
           { header: "Skor Etiketi", key: "leadScoreLabel" },
         ],
         rows: rows as unknown as Record<string, unknown>[],
+      };
+    }
+    // --- CRM veri kumeleri (Phase 5) ---------------------------------------
+    // Not: CRM sorgulari ticaret filtreleri degil, yalnizca aktif proje
+    // context'i ile calisir; organizationId her zaman oturumdan gelir.
+    case "leads": {
+      const rows = await getLeads(organizationId, { projectId: filters.projectId, limit: 5000 });
+      return {
+        fileName: "leadler",
+        columns: [
+          { header: "Firma", key: "companyName" },
+          { header: "Ülke", key: "country" },
+          { header: "Proje", key: "projectName" },
+          { header: "Durum", key: "statusLabel" },
+          { header: "Fırsat Skoru", key: "leadScore" },
+          { header: "Skor Etiketi", key: "leadScoreLabel" },
+          { header: "Satış Temsilcisi", key: "salesOwner" },
+          { header: "Son Temas", key: "lastContactDate" },
+          { header: "Sonraki Takip", key: "nextFollowupDate" },
+        ],
+        rows: rows.map((r) => ({
+          ...r,
+          statusLabel: LEAD_STATUS_LABELS[r.leadStatus] ?? r.leadStatus,
+        })) as unknown as Record<string, unknown>[],
+      };
+    }
+    case "activities": {
+      const rows = await getRecentActivities(organizationId, filters.projectId, 5000);
+      return {
+        fileName: "aktiviteler",
+        columns: [
+          { header: "Tarih", key: "dateLabel" },
+          { header: "Firma", key: "companyName" },
+          { header: "Kişi", key: "contactName" },
+          { header: "Tür", key: "typeLabel" },
+          { header: "Sonuç", key: "result" },
+          { header: "Notlar", key: "notes" },
+          { header: "Sonraki Adım", key: "nextAction" },
+          { header: "Sonraki Takip", key: "nextFollowupDate" },
+          { header: "Kaydeden", key: "userName" },
+        ],
+        rows: rows.map((r) => ({
+          ...r,
+          dateLabel: r.activityDate ? new Date(r.activityDate).toISOString().slice(0, 10) : "",
+          typeLabel: ACTIVITY_TYPE_LABELS[r.activityType ?? ""] ?? r.activityType ?? "",
+        })) as unknown as Record<string, unknown>[],
+      };
+    }
+    case "follow-ups": {
+      const rows = await getFollowUps(organizationId, filters.projectId, 365);
+      return {
+        fileName: "takipler",
+        columns: [
+          { header: "Takip Tarihi", key: "nextFollowupDate" },
+          { header: "Durum", key: "dueLabel" },
+          { header: "Firma", key: "companyName" },
+          { header: "Ülke", key: "country" },
+          { header: "Lead Durumu", key: "statusLabel" },
+          { header: "Fırsat Skoru", key: "leadScore" },
+          { header: "Satış Temsilcisi", key: "salesOwner" },
+        ],
+        rows: rows.map((r) => ({
+          ...r,
+          statusLabel: LEAD_STATUS_LABELS[r.leadStatus] ?? r.leadStatus,
+          dueLabel: r.overdue
+            ? `${Math.abs(r.daysUntil)} gün gecikti`
+            : r.daysUntil === 0
+              ? "bugün"
+              : `${r.daysUntil} gün kaldı`,
+        })) as unknown as Record<string, unknown>[],
       };
     }
     default:

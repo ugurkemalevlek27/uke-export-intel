@@ -131,7 +131,12 @@ export async function getCompaniesList(
   const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), 200);
   const page = Math.max(opts.page ?? 1, 1);
 
-  const conditions = [eq(companies.organizationId, organizationId)];
+  // Birlestirilmis (mezar tasi) firmalar listelerde gosterilmez - verileri
+  // hedef firmaya tasindi, kayitlari yalnizca izlenebilirlik icin duruyor.
+  const conditions = [
+    eq(companies.organizationId, organizationId),
+    sql`${companies.mergedIntoId} IS NULL`,
+  ];
   if (filters.projectId !== undefined) {
     conditions.push(eq(companyProjects.projectId, filters.projectId));
   }

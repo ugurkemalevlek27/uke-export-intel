@@ -9,6 +9,13 @@ import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { updateCrmFields } from "./actions";
+import { getCompanyContacts, getCompanyActivities } from "@/lib/crm";
+import { normalizeRole, can } from "@/lib/roles";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { ContactsPanel } from "@/components/crm/ContactsPanel";
+import { ActivitiesPanel } from "@/components/crm/ActivitiesPanel";
 
 const STATUS_OPTIONS = Object.keys(LEAD_STATUS_LABELS);
 
@@ -42,6 +49,19 @@ export default async function CompanyDetailPage({
     company, crm, kpis, suppliers, supplierConcentrationPct, supplierHhi,
     supplierCountries, products, yearlyTrend, monthlyTrend, recentTransactions,
   } = ci;
+
+  // CRM verileri (Phase 4). Kisiler firma bazli, aktiviteler proje bazlidir.
+  const [dbUser] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, session!.userId))
+    .limit(1);
+  const canEditCrm = can.editCrm(normalizeRole(dbUser?.role));
+
+  const [contactList, activityList] = await Promise.all([
+    getCompanyContacts(organizationId, Number(id)),
+    crm ? getCompanyActivities(organizationId, crm.companyProjectId) : Promise.resolve([]),
+  ]);
 
   const breakdown = crm?.leadScoreBreakdown ? safeParse(crm.leadScoreBreakdown) : null;
   const boundUpdate = crm ? updateCrmFields.bind(null, crm.companyProjectId) : null;
@@ -246,6 +266,19 @@ export default async function CompanyDetailPage({
                   </table>
                 </div>
               </Card>
+
+              <ContactsPanel
+                companyId={Number(id)}
+                contacts={contactList}
+                canEdit={canEditCrm}
+              />
+
+              <ActivitiesPanel
+                companyProjectId={crm?.companyProjectId ?? null}
+                activities={activityList}
+                contacts={contactList}
+                canEdit={canEditCrm}
+              />
             </div>
 
             {/* CRM paneli */}

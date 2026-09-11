@@ -8,6 +8,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { normalizeRole, can } from "@/lib/roles";
 import { getActiveProjectId, getActiveProject } from "@/lib/projectContext";
 import { parseTradeFilters, type RawSearchParams } from "@/lib/filters";
 import { buildCountryReport, buildCompanyReport } from "@/lib/reports";
@@ -18,6 +22,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Oturum bulunamadı." }, { status: 401 });
   }
   const organizationId = session.organizationId;
+
+  // Rapor icerigi rol'e gore degisir: Firma Raporu satis/CRM bolumu (lead durumu,
+  // temsilci, notlar) icerir. Bu uc Proxy'nin disinda oldugu icin yetki burada
+  // dogrulanir.
+  const [dbUser] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1);
+  const role = normalizeRole(dbUser?.role);
+  if (!can.viewAnalytics(role)) {
+    return NextResponse.json({ error: "Rapor alma yetkiniz yok." }, { status: 403 });
+  }
 
   const sp: RawSearchParams = Object.fromEntries(req.nextUrl.searchParams.entries());
   const parsed = parseTradeFilters(sp);
@@ -46,7 +63,13 @@ export async function GET(req: NextRequest) {
     if (!/^\d+$/.test(raw)) {
       return NextResponse.json({ error: "Geçersiz firma." }, { status: 400 });
     }
-    result = await buildCompanyReport(organizationId, Number(raw), filters, projectLabel);
+    result = await buildCompanyReport(
+      organizationId,
+      Number(raw),
+      filters,
+      projectLabel,
+      can.editCrm(role) // CRM bolumu yalnizca yetkili kullaniciya
+    );
   } else {
     return NextResponse.json({ error: "Geçersiz rapor tipi." }, { status: 400 });
   }

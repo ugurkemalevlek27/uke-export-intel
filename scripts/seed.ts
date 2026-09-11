@@ -36,8 +36,8 @@ async function readXlsxAsRows(path: string): Promise<Record<string, unknown>[]> 
       const header = headers[col];
       if (!header) continue;
       let val = values[col];
-      if (val && typeof val === "object" && "text" in (val as any)) {
-        val = (val as any).text; // rich text hucreleri
+      if (val && typeof val === "object" && "text" in val) {
+        val = (val as { text: unknown }).text; // rich text hucreleri
       }
       obj[header] = val;
     }

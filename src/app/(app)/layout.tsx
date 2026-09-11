@@ -9,6 +9,8 @@ import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import Link from "next/link";
+import { MobileNavToggle } from "@/components/MobileNavToggle";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -37,9 +39,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <aside className="w-64 shrink-0 bg-slate-900 text-slate-100 flex flex-col sticky top-0 h-screen">
-        <div className="px-5 py-4 border-b border-slate-800">
+    <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50">
+      <MobileNavToggle>
+        <div className="hidden lg:block px-5 py-4 border-b border-slate-800">
           <div className="text-[10px] tracking-widest text-slate-400 font-medium">UKE GLOBAL</div>
           <div className="text-sm font-semibold">Export Intelligence</div>
         </div>
@@ -55,11 +57,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="px-5 py-3 border-t border-slate-800 text-xs text-slate-400">
           <div className="truncate text-slate-300">{session.name ?? session.email}</div>
           <div className="text-[10px] text-slate-500 mb-2">{ROLE_LABELS_TR[role]}</div>
-          <form action={logout}>
-            <button className="text-slate-400 hover:text-white transition-colors">Çıkış Yap</button>
-          </form>
+          <div className="flex items-center gap-3">
+            <Link href="/admin/settings" className="text-slate-400 hover:text-white transition-colors">
+              Hesabım
+            </Link>
+            <span className="text-slate-700">·</span>
+            <form action={logout}>
+              <button className="text-slate-400 hover:text-white transition-colors">Çıkış Yap</button>
+            </form>
+          </div>
         </div>
-      </aside>
+      </MobileNavToggle>
       <main className="flex-1 min-w-0">{children}</main>
     </div>
   );
