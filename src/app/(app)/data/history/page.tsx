@@ -6,6 +6,7 @@ import { PageHeader, KpiCard, EmptyState } from "@/components/ui";
 import Link from "next/link";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /**
  * Ice Aktarma Gecmisi (Phase 4)
@@ -17,8 +18,7 @@ import { AccessDenied } from "@/components/AccessDenied";
 export default async function ImportHistoryPage() {
   const guard = await guardPage("importData");
   if (!guard.allowed) return <AccessDenied title="İçe Aktarma Geçmişi" role={guard.role} needed="veri içe aktarma" />;
-  const session = guard.session;
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
   const projectId = await getActiveProjectId(organizationId);
 
   const where =

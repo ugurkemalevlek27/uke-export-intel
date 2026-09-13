@@ -318,6 +318,27 @@ export default function ImportWizard({ projects }: { projects: { id: number; nam
               />
             </div>
 
+            {result.warnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Dikkat: bazı sütunlar büyük ölçüde boş kaydedildi
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {result.warnings.map((w, i) => (
+                    <li key={i} className="text-sm text-amber-800">• {w}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-700 mt-3">
+                  Veri yüklendi, hiçbir satır kaybolmadı. Sütun eşleştirmesi yanlışsa
+                  düzeltmenin yolu: bu yüklemeyi İçe Aktarma Geçmişi&apos;nden geri alın,
+                  sonra doğru eşleştirmeyle yeniden yükleyin.{" "}
+                  <strong>Önce geri almadan yeniden yüklemeyin</strong> — ülke bilgisi
+                  &quot;aynı sevkiyat&quot; tanımının parçası olduğu için düzeltilmiş satırlar
+                  duplicate sayılmaz ve kayıtlar ikiye katlanır.
+                </p>
+              </div>
+            )}
+
             {result.skippedDuplicateCount > 0 && (
               <p className="text-xs text-slate-500">
                 {result.skippedDuplicateCount.toLocaleString("tr-TR")} satır daha önce yüklenmiş

@@ -11,6 +11,9 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { MobileNavToggle } from "@/components/MobileNavToggle";
+import { getTenantContext, listAccessibleTenants } from "@/lib/tenant";
+import { setActiveTenantAction } from "@/lib/tenantActions";
+import { TenantSwitcher } from "@/components/TenantSwitcher";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -25,9 +28,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .limit(1);
   const role = normalizeRole(dbUser?.role);
 
+  const tenant = await getTenantContext();
+  if (!tenant) redirect("/login");
+  const organizationId = tenant.organizationId;
+  // Kiraci listesi YALNIZCA platform yoneticisi icin anlamli; digerlerinde tek oge doner.
+  const tenants = tenant.isPlatformAdmin ? await listAccessibleTenants() : [];
+
   const [projects, activeProjectId] = await Promise.all([
-    listProjects(session.organizationId),
-    getActiveProjectId(session.organizationId),
+    listProjects(organizationId),
+    getActiveProjectId(organizationId),
   ]);
 
   const groups = navigationFor(role);
@@ -45,6 +54,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="text-[10px] tracking-widest text-slate-400 font-medium">UKE GLOBAL</div>
           <div className="text-sm font-semibold">Export Intelligence</div>
         </div>
+
+        {tenant.isPlatformAdmin && (
+          <TenantSwitcher
+            tenants={tenants}
+            activeId={organizationId}
+            action={setActiveTenantAction}
+          />
+        )}
 
         <ProjectSwitcher
           projects={projects}

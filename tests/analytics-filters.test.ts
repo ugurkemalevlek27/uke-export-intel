@@ -4,9 +4,8 @@
 
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { db } from "../src/db";
-import { organizations } from "../src/db/schema";
 import { parseTradeFilters } from "../src/lib/filters";
+import { organizationWithData } from "./helpers/tenant";
 import {
   getTradeKpis,
   getCountryBreakdown,
@@ -22,9 +21,11 @@ let org: number;
 const none = parseTradeFilters({});
 
 before(async () => {
-  const [o] = await db.select({ id: organizations.id }).from(organizations).limit(1);
-  assert.ok(o, "test icin en az bir organizasyon gerekli");
-  org = o.id;
+  // Cok kiracili yapida veri platform organizasyonunda DEGIL, musteri
+  // kiracisindadir; testler veriyi barindiran kiraciyi bulmalidir.
+  const id = await organizationWithData();
+  assert.ok(id, "test icin ticaret verisi olan bir organizasyon gerekli");
+  org = id;
 });
 
 test("tarih filtresi toplamlari daraltir", async () => {

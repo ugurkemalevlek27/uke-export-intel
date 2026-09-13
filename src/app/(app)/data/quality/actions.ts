@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { normalizeRole, can } from "@/lib/roles";
 import { recalculateProjectScores } from "@/lib/recalculateScores";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /** Oturum + yetki kontrolu (Server Function'lar Proxy zincirinin disinda calisabilir). */
 async function authorize() {
@@ -20,7 +21,7 @@ async function authorize() {
   if (!can.manageDataQuality(normalizeRole(u?.role))) {
     throw new Error("Veri kalitesi düzenleme yetkiniz yok.");
   }
-  return session;
+  return { session, organizationId: await requireOrganizationId() };
 }
 
 /**
@@ -32,7 +33,7 @@ async function authorize() {
  * - Etkilenen projelerdeki Firsat Skorlari yeniden hesaplanir.
  */
 export async function mergeCompaniesAction(formData: FormData) {
-  const session = await authorize();
+  const { session, organizationId } = await authorize();
 
   const sourceId = Number(formData.get("sourceId"));
   const targetId = Number(formData.get("targetId"));
@@ -44,7 +45,7 @@ export async function mergeCompaniesAction(formData: FormData) {
     .from(companies)
     .where(
       and(
-        eq(companies.organizationId, session.organizationId),
+        eq(companies.organizationId, organizationId),
         sql`${companies.id} IN (${sourceId}, ${targetId})`
       )
     );
@@ -98,14 +99,14 @@ export async function mergeCompaniesAction(formData: FormData) {
 
 /** "Bunlar farklı firmalar" - duplicate isaretini kaldirir. */
 export async function dismissDuplicateAction(formData: FormData) {
-  const session = await authorize();
+  const { organizationId } = await authorize();
   const companyId = Number(formData.get("companyId"));
   if (!companyId) return;
 
   await db
     .update(companies)
     .set({ possibleDuplicateOfId: null, updatedAt: new Date() })
-    .where(and(eq(companies.id, companyId), eq(companies.organizationId, session.organizationId)));
+    .where(and(eq(companies.id, companyId), eq(companies.organizationId, organizationId)));
 
   revalidatePath("/data/quality");
 }
@@ -115,14 +116,14 @@ export async function dismissDuplicateAction(formData: FormData) {
  * Mezar tasi yaklasimi sayesinde bu mumkun - hicbir veri silinmedigi icin.
  */
 export async function unmergeCompanyAction(formData: FormData) {
-  const session = await authorize();
+  const { organizationId } = await authorize();
   const companyId = Number(formData.get("companyId"));
   if (!companyId) return;
 
   const [c] = await db
     .select({ id: companies.id, mergedIntoId: companies.mergedIntoId, name: companies.name })
     .from(companies)
-    .where(and(eq(companies.id, companyId), eq(companies.organizationId, session.organizationId)))
+    .where(and(eq(companies.id, companyId), eq(companies.organizationId, organizationId)))
     .limit(1);
   if (!c || !c.mergedIntoId) return;
 
@@ -134,7 +135,7 @@ export async function unmergeCompanyAction(formData: FormData) {
       and(
         eq(tradeRecords.companyId, c.mergedIntoId),
         eq(tradeRecords.importerNameRaw, c.name),
-        eq(tradeRecords.organizationId, session.organizationId)
+        eq(tradeRecords.organizationId, organizationId)
       )
     );
 

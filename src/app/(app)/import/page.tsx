@@ -8,13 +8,14 @@ import ImportWizard from "./ImportWizard";
 import Link from "next/link";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 export default async function ImportPage() {
   const guard = await guardPage("importData");
   if (!guard.allowed)
     return <AccessDenied title="Veri İçe Aktar" role={guard.role} needed="veri içe aktarma" />;
 
-  const organizationId = guard.session.organizationId;
+  const organizationId = await requireOrganizationId();
   const role = guard.role;
 
   const projectList = await db

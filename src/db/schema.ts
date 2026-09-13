@@ -24,6 +24,8 @@ import {
   index,
   pgEnum,
   boolean,
+  jsonb,
+  bigint,
 } from "drizzle-orm/pg-core";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,7 @@ export const projects = pgTable(
     // --- Client workspace alanlari (Phase 1) ---
     // Hepsi nullable: mevcut projeler bozulmadan calismaya devam eder.
     clientName: text("client_name"), // orn: "ACC Ambalaj", "Coral Paints"
+    clientKey: varchar("client_key", { length: 100 }),
     productGroup: varchar("product_group", { length: 150 }), // orn: "Mattress Packaging"
     currency: varchar("currency", { length: 10 }).default("USD"),
     dateFrom: date("date_from"),
@@ -135,6 +138,8 @@ export const companies = pgTable(
 // ---------------------------------------------------------------------------
 
 export const leadStatusEnum = pgEnum("lead_status", [
+  "linkedin_eklendi",
+  "numune_gonderildi",
   "yeni",
   "arastiriliyor",
   "karar_verici_bulundu",
@@ -254,6 +259,7 @@ export const activities = pgTable(
     nextAction: text("next_action"),
     nextFollowupDate: date("next_followup_date"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    externalEventId: varchar("external_event_id", { length: 255 }),
   },
   (table) => ({
     companyProjectIdx: index("activities_company_project_idx").on(
@@ -261,6 +267,121 @@ export const activities = pgTable(
       table.activityDate
     ),
     followupIdx: index("activities_followup_idx").on(table.nextFollowupDate),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Integration events & review queue
+// ---------------------------------------------------------------------------
+
+export const communicationAccounts = pgTable("communication_accounts", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  clientId: varchar("client_id", { length: 100 }).notNull(),
+  channel: text("channel").notNull(), provider: text("provider").notNull(),
+  address: text("address").notNull(), credentialPrefix: text("credential_prefix").notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  hourlyLimit: integer("hourly_limit").default(30).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({ addressUnique: uniqueIndex("communication_accounts_address_unique").on(table.channel, table.provider, table.address) }));
+
+export const communicationPermissions = pgTable("communication_permissions", {
+  userId: integer("user_id").references(() => users.id),
+  accountId: integer("account_id").notNull().references(() => communicationAccounts.id),
+  address: text("address").notNull(), allowed: boolean("allowed").default(false).notNull(),
+  aiAllowed: boolean("ai_allowed").default(false).notNull(),
+}, table => ({ unique: uniqueIndex("communication_permissions_unique").on(table.accountId, table.address) }));
+
+export const communicationSuppressions = pgTable("communication_suppressions", {
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  clientId: varchar("client_id", { length: 100 }).notNull(), channel: text("channel").notNull(),
+  address: text("address").notNull(), reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({ unique: uniqueIndex("communication_suppressions_unique").on(table.organizationId, table.clientId, table.channel, table.address) }));
+
+export const communicationMessages = pgTable("communication_messages", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  accountId: integer("account_id").notNull().references(() => communicationAccounts.id),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  clientId: varchar("client_id", { length: 100 }).notNull(),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  leadId: integer("lead_id").references(() => companyProjects.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  externalEventId: text("external_event_id").notNull(), payloadHash: text("payload_hash").notNull(),
+  providerMessageId: text("provider_message_id"), threadId: text("thread_id"),
+  direction: text("direction").notNull(), address: text("address").notNull(),
+  subject: text("subject"), body: text("body"), status: text("status").notNull(),
+  reviewReason: text("review_reason"), activityId: integer("activity_id").references(() => activities.id),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  eventUnique: uniqueIndex("communication_messages_event_unique").on(table.accountId, table.externalEventId),
+  threads: index("communication_threads_idx").on(table.accountId, table.threadId),
+  provider: index("communication_provider_idx").on(table.accountId, table.providerMessageId),
+  review: index("communication_review_idx").on(table.organizationId, table.projectId, table.status),
+}));
+
+export const communicationNonces = pgTable("communication_nonces", {
+  accountId: integer("account_id").notNull().references(() => communicationAccounts.id),
+  nonce: text("nonce").notNull(), externalEventId: text("external_event_id").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({ unique: uniqueIndex("communication_nonces_unique").on(table.accountId, table.nonce) }));
+
+export const whatsappAssistantResults = pgTable("whatsapp_assistant_results", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  messageId: bigint("message_id", { mode: "number" }).notNull().unique().references(() => communicationMessages.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  action: text("action").notNull(), reply: text("reply").notNull(),
+  deliveryStatus: text("delivery_status").default("configuration_required").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const integrationEvents = pgTable(
+  "integration_events",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    organizationId: integer("organization_id").notNull().references(() => organizations.id),
+    clientId: varchar("client_id", { length: 100 }).notNull(),
+    projectId: integer("project_id").notNull(),
+    leadId: integer("lead_id").notNull(),
+    contactId: integer("contact_id").notNull(),
+    externalEventId: varchar("external_event_id", { length: 255 }).notNull(),
+    nonce: varchar("nonce", { length: 255 }).notNull(),
+    eventType: varchar("event_type", { length: 100 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload").notNull(),
+    status: varchar("status", { length: 30 }).default("received").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    lastError: text("last_error"),
+    activityId: integer("activity_id").references(() => activities.id),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    eventUnique: uniqueIndex("integration_events_org_external_unique").on(table.organizationId, table.externalEventId),
+    nonceUnique: uniqueIndex("integration_events_org_nonce_unique").on(table.organizationId, table.nonce),
+    statusIdx: index("integration_events_status_idx").on(table.status, table.createdAt),
+  })
+);
+
+export const integrationReviewQueue = pgTable(
+  "integration_review_queue",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    integrationEventId: bigint("integration_event_id", { mode: "number" }).notNull().references(() => integrationEvents.id),
+    organizationId: integer("organization_id").notNull().references(() => organizations.id),
+    reason: text("reason").notNull(),
+    status: varchar("status", { length: 30 }).default("pending").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => ({
+    eventUnique: uniqueIndex("integration_review_event_unique").on(table.integrationEventId),
+    pendingIdx: index("integration_review_pending_idx").on(table.organizationId, table.status, table.createdAt),
   })
 );
 

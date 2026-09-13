@@ -8,6 +8,7 @@
 import { db } from "@/db";
 import { companies, tradeRecords } from "@/db/schema";
 import { and, eq, sql, isNotNull, desc } from "drizzle-orm";
+import { isUnknownCountrySql } from "./countryValues";
 
 export interface QualityIssue {
   key: string;
@@ -52,7 +53,7 @@ export async function getQualityOverview(
       total: sql<string>`COUNT(*)`,
       // GTIP yalnizca rakamlardan olusmali ve en az 6 hane olmali
       invalidHs: sql<string>`COUNT(*) FILTER (WHERE ${tradeRecords.hsCode} !~ '^[0-9]+$' OR length(${tradeRecords.hsCode}) < 6)`,
-      missingCountry: sql<string>`COUNT(*) FILTER (WHERE ${tradeRecords.importerCountry} IS NULL OR ${tradeRecords.importerCountry} = 'Unknown')`,
+      missingCountry: sql<string>`COUNT(*) FILTER (WHERE ${isUnknownCountrySql(tradeRecords.importerCountry)})`,
       missingDate: sql<string>`COUNT(*) FILTER (WHERE ${tradeRecords.transactionDate} IS NULL)`,
       missingProduct: sql<string>`COUNT(*) FILTER (WHERE ${tradeRecords.productDescription} IS NULL OR ${tradeRecords.productDescription} = 'Not Available')`,
       missingQuantity: sql<string>`COUNT(*) FILTER (WHERE ${tradeRecords.quantity} IS NULL)`,
@@ -96,7 +97,8 @@ export async function getQualityOverview(
     {
       key: "missing-country",
       label: "Ülke bilgisi eksik",
-      description: 'İthalatçı ülkesi boş ya da "Unknown" olan kayıtlar — ülke analizinde görünmezler.',
+      description:
+        "İthalatçı ülkesi belirtilmemiş kayıtlar (kendi 'Unknown' yer tutucumuz ya da sağlayıcının '(ZZZ)' kodu). Toplam ciroya dahildirler ve Ülke Analizi ekranında tek bir 'Bilinmeyen ülke' satırında görünürler; ülke sayısına ve pazar sıralamasına dahil edilmezler.",
       count: n(row?.missingCountry),
       severity: n(row?.missingCountry) > 0 ? "medium" : "low",
     },

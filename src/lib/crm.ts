@@ -278,6 +278,11 @@ export async function getFollowUps(
 }
 
 export const ACTIVITY_TYPES = [
+  "catalog",
+  "quote",
+  "sample",
+  "enrichment",
+  "report",
   "email",
   "phone",
   "whatsapp",
@@ -287,6 +292,11 @@ export const ACTIVITY_TYPES = [
 ] as const;
 
 export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  catalog: "Katalog",
+  quote: "Teklif",
+  sample: "Numune",
+  enrichment: "Veri Zenginleştirme",
+  report: "Rapor",
   email: "E-posta",
   phone: "Telefon",
   whatsapp: "WhatsApp",

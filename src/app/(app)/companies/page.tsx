@@ -1,9 +1,9 @@
-import { getSession } from "@/lib/auth";
 import { getCompaniesList } from "@/lib/queries";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { PageHeader, ScoreBadge, EmptyState } from "@/components/ui";
 import Link from "next/link";
 import { LEAD_STATUS_LABELS as STATUS_LABELS } from "@/lib/leadStatus";
+import { requireOrganizationId } from "@/lib/tenant";
 
 
 export default async function CompaniesPage({
@@ -11,14 +11,13 @@ export default async function CompaniesPage({
 }: {
   searchParams: Promise<{ search?: string; minScore?: string; page?: string }>;
 }) {
-  const session = await getSession();
   const params = await searchParams;
   // Aktif proje (client workspace) context'i - sol menudeki secici belirler.
-  const projectId = await getActiveProjectId(session!.organizationId);
+  const projectId = await getActiveProjectId(await requireOrganizationId());
   const page = params.page && /^\d+$/.test(params.page) ? Number(params.page) : 1;
 
   const result = await getCompaniesList(
-    session!.organizationId,
+    await requireOrganizationId(),
     {
       projectId,
       search: params.search,

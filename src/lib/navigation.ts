@@ -55,6 +55,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Lead'ler", href: "/crm/leads", status: "ready", visibleFor: can.editCrm },
       { label: "Aktiviteler", href: "/crm/activities", status: "ready", visibleFor: can.editCrm },
+      { label: "İnceleme Bekliyor", href: "/crm/review", status: "ready", visibleFor: can.editCrm },
+      { label: "E-posta ve WhatsApp", href: "/crm/messages", status: "ready", visibleFor: can.editCrm },
       { label: "Takipler", href: "/crm/follow-ups", status: "ready", visibleFor: can.editCrm },
     ],
   },
@@ -72,6 +74,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Projeler", href: "/admin/projects", status: "ready", visibleFor: can.manageProjects },
       { label: "Kullanıcılar", href: "/admin/users", status: "ready", visibleFor: can.manageUsers },
       { label: "Ayarlar", href: "/admin/settings", status: "ready", visibleFor: can.manageUsers },
+      { label: "Veri Yönetimi", href: "/admin/data", status: "ready", visibleFor: can.deleteData },
     ],
   },
 ];

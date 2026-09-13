@@ -5,36 +5,16 @@
 
 import { getActiveProjectId } from "@/lib/projectContext";
 import { getLeadPipeline, getLeads } from "@/lib/crm";
-import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
+import { LEAD_STATUS_LABELS, CRM_STAGES } from "@/lib/leadStatus";
 import { PageHeader, ScoreBadge, EmptyState, formatUsd } from "@/components/ui";
 import Link from "next/link";
 import { ExportButtons } from "@/components/ExportButtons";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 // Huninin mantiksal sirasi (kazanilan/kaybedilen en sonda).
-const PIPELINE_ORDER = [
-  "yeni",
-  "arastiriliyor",
-  "karar_verici_bulundu",
-  "ilk_temas",
-  "follow_up",
-  "ilgilendi",
-  "katalog_gonderildi",
-  "numune_talebi",
-  "fiyat_talebi",
-  "teklif_gonderildi",
-  "pazarlik",
-  "siparis_bekleniyor",
-  "siparis_alindi",
-  "uretim",
-  "sevkiyat",
-  "tahsilat",
-  "tekrar_siparis",
-  "beklemede",
-  "kaybedildi",
-  "uygun_degil",
-];
+const PIPELINE_ORDER: readonly string[] = CRM_STAGES;
 
 const CLOSED = new Set(["kaybedildi", "uygun_degil"]);
 
@@ -45,11 +25,10 @@ export default async function LeadsPage({
 }) {
   const guard = await guardPage("editCrm");
   if (!guard.allowed) return <AccessDenied title="Lead'ler" role={guard.role} needed="CRM" />;
-  const session = guard.session;
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
   const projectId = await getActiveProjectId(organizationId);
   const sp = await searchParams;
-  const status = sp.status && sp.status in LEAD_STATUS_LABELS ? sp.status : undefined;
+  const status = sp.status && Object.hasOwn(LEAD_STATUS_LABELS, sp.status) ? sp.status : undefined;
 
   const [pipeline, leads] = await Promise.all([
     getLeadPipeline(organizationId, projectId),
@@ -84,8 +63,8 @@ export default async function LeadsPage({
           <EmptyState text="Aktif projede henüz lead yok." />
         ) : (
           <div className="space-y-1.5">
-            {PIPELINE_ORDER.filter((s) => byStatus.has(s)).map((s) => {
-              const row = byStatus.get(s)!;
+            {[...PIPELINE_ORDER, ...pipeline.map(p => p.leadStatus).filter(s => !PIPELINE_ORDER.includes(s))].map((s) => {
+              const row = byStatus.get(s) ?? { count: 0, totalValueUsd: 0 };
               const pct = (row.count / maxCount) * 100;
               return (
                 <Link

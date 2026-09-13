@@ -1,4 +1,3 @@
-import { getSession } from "@/lib/auth";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { parseTradeFilters, filtersToQuery, type RawSearchParams } from "@/lib/filters";
 import { getHsBreakdown, getTradeKpis, getFilterOptions, type HsLevel } from "@/lib/analytics";
@@ -6,6 +5,7 @@ import { GlobalFilterBar } from "@/components/GlobalFilterBar";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader, KpiCard, EmptyState, formatUsd } from "@/components/ui";
 import Link from "next/link";
+import { requireOrganizationId } from "@/lib/tenant";
 
 const LEVELS: { value: HsLevel; label: string; hint: string }[] = [
   { value: "hs2", label: "HS2", hint: "fasıl" },
@@ -19,8 +19,7 @@ export default async function ProductsPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const session = await getSession();
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const sp = await searchParams;
   const parsed = parseTradeFilters(sp);

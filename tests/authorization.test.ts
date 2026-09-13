@@ -16,27 +16,27 @@ import { DATASET_CAPABILITY } from "../src/app/api/export/route";
 const EXPECTED: Record<Role, Record<keyof typeof can, boolean>> = {
   viewer: {
     viewAnalytics: true, editCrm: false, importData: false,
-    manageDataQuality: false, manageProjects: false, manageUsers: false,
+    manageDataQuality: false, manageProjects: false, manageUsers: false, deleteData: false,
   },
   sales: {
     viewAnalytics: true, editCrm: true, importData: false,
-    manageDataQuality: false, manageProjects: false, manageUsers: false,
+    manageDataQuality: false, manageProjects: false, manageUsers: false, deleteData: false,
   },
   analyst: {
     viewAnalytics: true, editCrm: true, importData: true,
-    manageDataQuality: false, manageProjects: false, manageUsers: false,
+    manageDataQuality: false, manageProjects: false, manageUsers: false, deleteData: false,
   },
   manager: {
     viewAnalytics: true, editCrm: true, importData: true,
-    manageDataQuality: true, manageProjects: true, manageUsers: false,
+    manageDataQuality: true, manageProjects: true, manageUsers: false, deleteData: false,
   },
   organization_admin: {
     viewAnalytics: true, editCrm: true, importData: true,
-    manageDataQuality: true, manageProjects: true, manageUsers: true,
+    manageDataQuality: true, manageProjects: true, manageUsers: true, deleteData: true,
   },
   super_admin: {
     viewAnalytics: true, editCrm: true, importData: true,
-    manageDataQuality: true, manageProjects: true, manageUsers: true,
+    manageDataQuality: true, manageProjects: true, manageUsers: true, deleteData: true,
   },
 };
 

@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { getSession } from "@/lib/auth";
 import { normalizeRole, can, ROLES, type Role } from "@/lib/roles";
+import { requireOrganizationId } from "@/lib/tenant";
 
 function isRole(v: string): v is Role {
   return (ROLES as readonly string[]).includes(v);
@@ -22,11 +23,11 @@ async function authorize() {
     .limit(1);
   const role = normalizeRole(u?.role);
   if (!can.manageUsers(role)) throw new Error("Kullanıcı yönetimi yetkiniz yok.");
-  return { session, role };
+  return { session, role, organizationId: await requireOrganizationId() };
 }
 
 export async function createUserAction(formData: FormData): Promise<void> {
-  const { session, role: myRole } = await authorize();
+  const { role: myRole, organizationId } = await authorize();
 
   const email = String(formData.get("email") ?? "")
     .toLowerCase()
@@ -53,7 +54,7 @@ export async function createUserAction(formData: FormData): Promise<void> {
   if (existing) throw new Error("Bu e-posta zaten kayıtlı.");
 
   await db.insert(users).values({
-    organizationId: session.organizationId, // her zaman kendi organizasyonu
+    organizationId, // her zaman AKTIF kiraci (super_admin baska kiraciya gecmis olabilir)
     email,
     name,
     role: newRole,
@@ -64,7 +65,7 @@ export async function createUserAction(formData: FormData): Promise<void> {
 }
 
 export async function updateUserRoleAction(userId: number, formData: FormData): Promise<void> {
-  const { session, role: myRole } = await authorize();
+  const { session, role: myRole, organizationId } = await authorize();
 
   const roleRaw = String(formData.get("role") ?? "");
   if (!isRole(roleRaw)) return;
@@ -76,7 +77,7 @@ export async function updateUserRoleAction(userId: number, formData: FormData): 
   const [target] = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.id, userId), eq(users.organizationId, session.organizationId)))
+    .where(and(eq(users.id, userId), eq(users.organizationId, organizationId)))
     .limit(1);
   if (!target) throw new Error("Bu kullanıcıya erişim yetkiniz yok.");
 
@@ -87,7 +88,7 @@ export async function updateUserRoleAction(userId: number, formData: FormData): 
       .from(users)
       .where(
         and(
-          eq(users.organizationId, session.organizationId),
+          eq(users.organizationId, organizationId),
           ne(users.id, session.userId),
           sql`lower(${users.role}) IN ('admin', 'organization_admin', 'super_admin')`
         )
@@ -108,7 +109,7 @@ export async function updateUserRoleAction(userId: number, formData: FormData): 
  * hicbir yerde duz metin saklamaz.
  */
 export async function resetPasswordAction(userId: number, formData: FormData): Promise<void> {
-  const { session } = await authorize();
+  const { organizationId } = await authorize();
 
   const password = String(formData.get("password") ?? "");
   if (password.length < 10) throw new Error("Şifre en az 10 karakter olmalı.");
@@ -116,7 +117,7 @@ export async function resetPasswordAction(userId: number, formData: FormData): P
   const [target] = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.id, userId), eq(users.organizationId, session.organizationId)))
+    .where(and(eq(users.id, userId), eq(users.organizationId, organizationId)))
     .limit(1);
   if (!target) throw new Error("Bu kullanıcıya erişim yetkiniz yok.");
 

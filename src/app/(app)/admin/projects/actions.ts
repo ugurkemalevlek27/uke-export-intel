@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { normalizeRole, can } from "@/lib/roles";
+import { requireOrganizationId } from "@/lib/tenant";
 
 const STATUSES = ["active", "paused", "completed", "archived"] as const;
 type ProjectStatus = (typeof STATUSES)[number];
@@ -25,7 +26,7 @@ async function authorize() {
   if (!can.manageProjects(normalizeRole(u?.role))) {
     throw new Error("Proje yönetimi yetkiniz yok.");
   }
-  return session;
+  return { session, organizationId: await requireOrganizationId() };
 }
 
 function str(fd: FormData, key: string): string | null {
@@ -45,12 +46,12 @@ function list(fd: FormData, key: string): string[] | null {
 }
 
 export async function createProjectAction(formData: FormData) {
-  const session = await authorize();
+  const { session, organizationId } = await authorize();
   const name = str(formData, "name");
   if (!name) return;
 
   await db.insert(projects).values({
-    organizationId: session.organizationId,
+    organizationId,
     name,
     clientName: str(formData, "clientName"),
     productGroup: str(formData, "productGroup"),
@@ -73,12 +74,12 @@ export async function createProjectAction(formData: FormData) {
  * tum ticaret kayitlarini ve lead gecmisini kopartirdi ("Database verisini silme").
  */
 export async function updateProjectAction(projectId: number, formData: FormData) {
-  const session = await authorize();
+  const { organizationId } = await authorize();
 
   const [owned] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, session.organizationId)))
+    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
     .limit(1);
   if (!owned) throw new Error("Bu projeye erişim yetkiniz yok.");
 

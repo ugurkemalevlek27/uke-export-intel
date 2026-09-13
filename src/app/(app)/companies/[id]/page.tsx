@@ -5,7 +5,7 @@ import { getCompanyIntelligence } from "@/lib/analytics";
 import { KpiCard, ScoreBadge, EmptyState, formatUsd } from "@/components/ui";
 import { TrendBars, DistributionBars } from "@/components/charts";
 import { ReportButton } from "@/components/ReportButton";
-import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
+import { LEAD_STATUS_LABELS, statusOptions } from "@/lib/leadStatus";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { updateCrmFields } from "./actions";
@@ -16,8 +16,8 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ContactsPanel } from "@/components/crm/ContactsPanel";
 import { ActivitiesPanel } from "@/components/crm/ActivitiesPanel";
+import { requireOrganizationId } from "@/lib/tenant";
 
-const STATUS_OPTIONS = Object.keys(LEAD_STATUS_LABELS);
 
 /**
  * Company Intelligence (Phase 3)
@@ -35,7 +35,7 @@ export default async function CompanyDetailPage({
 }) {
   const { id } = await params;
   const session = await getSession();
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const sp = await searchParams;
   const parsed = parseTradeFilters(sp);
@@ -293,7 +293,7 @@ export default async function CompanyDetailPage({
                         defaultValue={crm?.leadStatus ?? "yeni"}
                         className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
                       >
-                        {STATUS_OPTIONS.map((s) => (
+                        {statusOptions(crm?.leadStatus ?? "yeni").map((s) => (
                           <option key={s} value={s}>
                             {LEAD_STATUS_LABELS[s]}
                           </option>

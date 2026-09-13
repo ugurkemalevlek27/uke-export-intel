@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { ACTIVE_PROJECT_COOKIE } from "@/lib/projectContext";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /**
  * Aktif projeyi degistirir.
@@ -34,7 +35,7 @@ export async function setActiveProjectAction(formData: FormData) {
   const [owned] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, session.organizationId)))
+    .where(and(eq(projects.id, projectId), eq(projects.organizationId, await requireOrganizationId())))
     .limit(1);
   if (!owned) return; // baska organizasyonun projesi - sessizce yok say
 

@@ -1,4 +1,3 @@
-import { getSession } from "@/lib/auth";
 import { getActiveProjectId, getActiveProject } from "@/lib/projectContext";
 import { parseTradeFilters, filtersToQuery, type RawSearchParams } from "@/lib/filters";
 import { getDashboardOverview, getFilterOptions } from "@/lib/analytics";
@@ -9,6 +8,7 @@ import { TrendBars, DistributionBars } from "@/components/charts";
 import { PageHeader, KpiCard, ScoreBadge, EmptyState, formatUsd } from "@/components/ui";
 import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
 import Link from "next/link";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /**
  * Dashboard V2 (Phase 2)
@@ -22,8 +22,7 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const session = await getSession();
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const sp = await searchParams;
   const parsed = parseTradeFilters(sp);

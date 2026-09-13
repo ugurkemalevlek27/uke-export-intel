@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { companies, companyProjects, tradeRecords, importBatches, isLeadStatus } from "@/db/schema";
 import { and, eq, sql, desc, ilike } from "drizzle-orm";
 import { countryNameToIso2 } from "./countryCodes";
+import { knownCountryCountSql } from "./countryValues";
 
 // ---------------------------------------------------------------------------
 // Phase 1: proje (client workspace) scope'u
@@ -428,7 +429,7 @@ export async function getDistinctExporters(organizationId: number, projectId?: n
     .select({
       name: tradeRecords.exporterNameRaw,
       totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
-      countryCount: sql<number>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+      countryCount: knownCountryCountSql(tradeRecords.importerCountry),
     })
     .from(tradeRecords)
     .where(and(tradeScope(organizationId, projectId), sql`${tradeRecords.exporterNameRaw} IS NOT NULL`))

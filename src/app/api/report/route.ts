@@ -15,13 +15,14 @@ import { normalizeRole, can } from "@/lib/roles";
 import { getActiveProjectId, getActiveProject } from "@/lib/projectContext";
 import { parseTradeFilters, type RawSearchParams } from "@/lib/filters";
 import { buildCountryReport, buildCompanyReport } from "@/lib/reports";
+import { requireOrganizationId } from "@/lib/tenant";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Oturum bulunamadı." }, { status: 401 });
   }
-  const organizationId = session.organizationId;
+  const organizationId = await requireOrganizationId();
 
   // Rapor icerigi rol'e gore degisir: Firma Raporu satis/CRM bolumu (lead durumu,
   // temsilci, notlar) icerir. Bu uc Proxy'nin disinda oldugu icin yetki burada

@@ -63,6 +63,14 @@ export const can = {
   manageProjects: (role: Role) => hasAtLeast(role, "manager"),
   /** Kullanici ve organizasyon ayarlari */
   manageUsers: (role: Role) => hasAtLeast(role, "organization_admin"),
+  /**
+   * Yuklenmis veriyi KALICI olarak silme (yukleme partisi geri alma).
+   *
+   * Bilerek en yuksek seviyede: bu islem geri alinamaz ve ticaret kayitlarini
+   * kalici siler. Veri iceri aktarabilen bir analistin ayni yetkiyle veri
+   * silebilmesi dogru degil.
+   */
+  deleteData: (role: Role) => hasAtLeast(role, "organization_admin"),
 };
 
 export const ROLE_LABELS_TR: Record<Role, string> = {

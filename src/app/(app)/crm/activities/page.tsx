@@ -8,6 +8,7 @@ import Link from "next/link";
 import { ExportButtons } from "@/components/ExportButtons";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 function fmtDate(d: Date | string): string {
   const dt = typeof d === "string" ? new Date(d) : d;
@@ -23,8 +24,7 @@ function dayKey(d: Date | string): string {
 export default async function ActivitiesPage() {
   const guard = await guardPage("editCrm");
   if (!guard.allowed) return <AccessDenied title="Aktiviteler" role={guard.role} needed="CRM" />;
-  const session = guard.session;
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
   const projectId = await getActiveProjectId(organizationId);
 
   const rows = await getRecentActivities(organizationId, projectId, 200);
@@ -52,6 +52,7 @@ export default async function ActivitiesPage() {
           description="Aktif projedeki son 200 temas kaydı. Yeni kayıt firma sayfasından eklenir."
         />
         <ExportButtons dataset="activities" query="" />
+        <Link href="/crm/review" className="text-sm underline">İnceleme Bekliyor</Link>
       </div>
 
       {rows.length === 0 ? (

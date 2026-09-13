@@ -20,6 +20,7 @@ import {
   getCompetitorRanking,
 } from "../src/lib/analytics";
 import { parseTradeFilters } from "../src/lib/filters";
+import { organizationWithData } from "./helpers/tenant";
 
 const MARKER = "__TENANT_TEST__";
 const FOREIGN_COUNTRY = "Testland (XX)";
@@ -29,12 +30,23 @@ let orgA: number;
 let orgB: number;
 let projectB: number;
 let companyB: number;
+/** B verisi yazilmadan ONCE alinan A anlik goruntusu (bkz. before). */
+let baselineA: Awaited<ReturnType<typeof getTradeKpis>>;
 
 before(async () => {
   // Mevcut (gercek) organizasyon = A
-  const [existing] = await db.select({ id: organizations.id }).from(organizations).limit(1);
+  // A = veriyi barindiran GERCEK kiraci (platform organizasyonu bos olabilir).
+  const withData = await organizationWithData();
+  const [existing] = withData
+    ? [{ id: withData }]
+    : await db.select({ id: organizations.id }).from(organizations).limit(1);
   assert.ok(existing, "Testin calismasi icin en az bir organizasyon gerekli");
   orgA = existing.id;
+
+  // A nin KPI lari B nin verisi yazilmadan ONCE olculur. Boylece izolasyon
+  // "A nin sayilari B yuzunden DEGISMEDI" seklinde dogrulanir ve test gercek
+  // veri kumesinin buyuklugune (kac ulke, kac kayit) bagimli olmaz.
+  baselineA = await getTradeKpis(orgA, noFilters);
 
   // Gecici yabanci organizasyon = B
   const [b] = await db.insert(organizations).values({ name: MARKER }).returning();
@@ -89,7 +101,10 @@ test("KPI toplamlari baska organizasyonun degerini icermez", async () => {
   assert.equal(b.transactionCount, 1);
   // A'nin toplami B'nin tek kaydini icermemeli
   assert.ok(!String(a.totalValueUsd).includes("777777"));
-  assert.equal(a.countryCount, 1, "A yalnizca kendi ulkesini gormeli");
+  // A nin KPI lari B eklendikten sonra da DEGISMEMELI.
+  assert.equal(a.countryCount, baselineA.countryCount, "B nin ulkesi A nin ulke sayisini artirmamali");
+  assert.equal(a.totalValueUsd, baselineA.totalValueUsd, "B nin degeri A nin toplamina eklenmemeli");
+  assert.equal(a.transactionCount, baselineA.transactionCount, "B nin kaydi A nin islem sayisina eklenmemeli");
 });
 
 test("ulke kirilimi organizasyonlar arasi sizmaz", async () => {

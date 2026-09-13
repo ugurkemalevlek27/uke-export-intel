@@ -11,6 +11,7 @@ import { PageHeader, EmptyState, formatUsd } from "@/components/ui";
 import { createProjectAction, updateProjectAction } from "./actions";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 const STATUS_LABELS: Record<string, string> = {
   active: "Aktif",
@@ -33,7 +34,7 @@ export default async function AdminProjectsPage() {
   if (!guard.allowed)
     return <AccessDenied title="Projeler" role={guard.role} needed="proje yönetimi" />;
 
-  const organizationId = guard.session.organizationId;
+  const organizationId = await requireOrganizationId();
 
   // Tek sorguda proje + hacim ozeti (client-side aggregate YAPILMAZ).
   const rows = await db

@@ -1,13 +1,14 @@
-import { getSession } from "@/lib/auth";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { parseTradeFilters, filtersToQuery, type RawSearchParams } from "@/lib/filters";
 import { getTradeKpis, getCountryBreakdown, getFilterOptions } from "@/lib/analytics";
 import { countryNameToIso2 } from "@/lib/countryCodes";
+import { UNKNOWN_COUNTRY_LABEL } from "@/lib/countryValues";
 import { GlobalFilterBar } from "@/components/GlobalFilterBar";
 import { ExportWorldMap } from "@/components/WorldMap";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader, KpiCard, EmptyState, formatUsd } from "@/components/ui";
 import Link from "next/link";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /**
  * Ülke Analizi - Phase 1'de kurulan mimarinin referans uygulamasi.
@@ -21,8 +22,7 @@ export default async function CountryAnalysisPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const session = await getSession();
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const sp = await searchParams;
   const activeProjectId = await getActiveProjectId(organizationId);
@@ -109,7 +109,12 @@ export default async function CountryAnalysisPage({
                             {c.country}
                           </Link>
                         ) : (
-                          <span className="text-slate-400">Not Available</span>
+                          // Ulkesi bilinmeyen kayitlarin toplami. Bir pazar
+                          // degildir: linki ve PDF raporu yoktur, "ÜLKE"
+                          // KPI sayisina dahil edilmez.
+                          <span className="text-slate-400" title="İthalatçı ülkesi kaynak veride belirtilmemiş kayıtlar. Toplamlara dahildir, ülke sayısına dahil değildir.">
+                            {UNKNOWN_COUNTRY_LABEL}
+                          </span>
                         )}
                       </td>
                       <td className="py-2.5 text-right font-medium text-slate-900">

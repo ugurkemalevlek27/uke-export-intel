@@ -13,6 +13,7 @@ import { db } from "@/db";
 import { companies, companyProjects, tradeRecords } from "@/db/schema";
 import { and, desc, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { tradeWhere, tradeConditionsSql, type TradeFilters } from "./filters";
+import { knownCountryCountSql, isUnknownCountry, UNKNOWN_COUNTRY } from "./countryValues";
 import { calculateTargetMarketScore, type TargetMarketScore } from "./targetMarketScoring";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ export async function getTradeKpis(
       importerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
       exporterCount: sql<string>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
       hsCodeCount: sql<string>`COUNT(DISTINCT ${tradeRecords.hsCode})`,
-      countryCount: sql<string>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+      countryCount: knownCountryCountSql(tradeRecords.importerCountry),
       firstTransactionDate: sql<string | null>`MIN(${tradeRecords.transactionDate})`,
       lastTransactionDate: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
     })
@@ -83,6 +84,11 @@ export interface CountryBreakdownRow {
   lastTransactionDate: string | null;
   /** Bu ulkenin filtrelenmis toplam icindeki payi (%) */
   marketSharePct: number;
+  /**
+   * Bu satir gercek bir ulke DEGIL, "ulkesi bilinmeyen" kayitlarin toplami.
+   * Gizlenmez (toplamlar tutarli kalsin diye) ama pazar gibi sunulmaz.
+   */
+  isUnknown: boolean;
 }
 
 export async function getCountryBreakdown(
@@ -106,10 +112,52 @@ export async function getCountryBreakdown(
 
   const grandTotal = rows.reduce((acc, r) => acc + (Number(r.totalValueUsd) || 0), 0);
 
-  return rows.map((r) => {
+  // "Unknown" ve "Countries（Territories）Unknown (ZZZ)" ayni seyi soyler; SQL
+  // onlari ayri grupladi. Burada TEK satirda toplanirlar ki ulke kiriliminda
+  // iki ayri sahte pazar gibi gorunmesinler.
+  const merged: typeof rows = [];
+  let unknownRow: (typeof rows)[number] | null = null;
+  for (const r of rows) {
+    if (!isUnknownCountry(r.country)) {
+      merged.push(r);
+      continue;
+    }
+    if (!unknownRow) {
+      unknownRow = { ...r, country: UNKNOWN_COUNTRY };
+      merged.push(unknownRow);
+      continue;
+    }
+    // Toplanabilir olculer toplanir; DISTINCT sayimlar (firma/tedarikci) iki
+    // grup arasinda cakisabilecegi icin UST SINIR olarak toplanir - bu deger
+    // zaten yalnizca "bilinmeyen" kovasini tarif eder, pazar karsilastirmasinda
+    // kullanilmaz.
+    unknownRow.totalValueUsd = String(Number(unknownRow.totalValueUsd) + Number(r.totalValueUsd));
+    unknownRow.transactionCount = String(Number(unknownRow.transactionCount) + Number(r.transactionCount));
+    unknownRow.shipmentCount = String(Number(unknownRow.shipmentCount) + Number(r.shipmentCount));
+    unknownRow.importerCount = String(Number(unknownRow.importerCount) + Number(r.importerCount));
+    unknownRow.exporterCount = String(Number(unknownRow.exporterCount) + Number(r.exporterCount));
+    if ((r.lastTransactionDate ?? "") > (unknownRow.lastTransactionDate ?? "")) {
+      unknownRow.lastTransactionDate = r.lastTransactionDate;
+    }
+  }
+
+  // Bilinmeyen kovasi degeri ne olursa olsun EN SONA alinir: gercek pazarlarin
+  // siralamasina karismasin.
+  merged.sort((x, y) => {
+    const xu = isUnknownCountry(x.country) ? 1 : 0;
+    const yu = isUnknownCountry(y.country) ? 1 : 0;
+    if (xu !== yu) return xu - yu;
+    return Number(y.totalValueUsd) - Number(x.totalValueUsd);
+  });
+
+  return merged.map((r) => {
     const v = Number(r.totalValueUsd) || 0;
+    const unknown = isUnknownCountry(r.country);
     return {
-      country: r.country,
+      // Bilinmeyen kovasi icin country=null: arayuz bunu link/PDF uretmeden,
+      // acik etiketle gosterir.
+      country: unknown ? null : r.country,
+      isUnknown: unknown,
       totalValueUsd: v,
       transactionCount: Number(r.transactionCount) || 0,
       shipmentCount: Number(r.shipmentCount) || 0,
@@ -157,7 +205,7 @@ export async function getHsBreakdown(
       transactionCount: sql<string>`COUNT(*)`,
       importerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
       exporterCount: sql<string>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
-      countryCount: sql<string>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+      countryCount: knownCountryCountSql(tradeRecords.importerCountry),
     })
     .from(tradeRecords)
     .where(tradeWhere(organizationId, filters))
@@ -438,9 +486,17 @@ export async function getFilterOptions(organizationId: number, filters: TradeFil
       .limit(300),
   ]);
 
+  // "Unknown" / "Countries（Territories）Unknown (ZZZ)" gibi yer tutucular FILTRE
+  // SECENEGI OLARAK SUNULMAZ: bunlar pazar degil, eksik veridir. Kayitlar
+  // silinmez - Ülke Analizi tablosunda "Bilinmeyen ülke" satirinda ve Veri
+  // Kalitesi ekraninda gorunmeye devam ederler.
   return {
-    importerCountries: importerCountries.map((r) => r.value).filter((v): v is string => !!v),
-    exporterCountries: exporterCountries.map((r) => r.value).filter((v): v is string => !!v),
+    importerCountries: importerCountries
+      .map((r) => r.value)
+      .filter((v): v is string => !!v && !isUnknownCountry(v)),
+    exporterCountries: exporterCountries
+      .map((r) => r.value)
+      .filter((v): v is string => !!v && !isUnknownCountry(v)),
     hs4Codes: hs4List.map((r) => r.value).filter((v): v is string => !!v),
   };
 }
@@ -669,7 +725,7 @@ export async function getSupplierDetail(
       totalValueUsd: sql<string>`COALESCE(SUM(${tradeRecords.valueUsd}), 0)`,
       transactionCount: sql<string>`COUNT(*)`,
       customerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
-      countryCount: sql<string>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+      countryCount: knownCountryCountSql(tradeRecords.importerCountry),
       productCount: sql<string>`COUNT(DISTINCT ${tradeRecords.hsCode})`,
       lastTransactionDate: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
     })
@@ -849,7 +905,7 @@ export async function getSupplierList(
     .select({
       name: tradeRecords.exporterNameRaw,
       totalValueUsd: sql<string>`SUM(${tradeRecords.valueUsd})`,
-      countryCount: sql<string>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+      countryCount: knownCountryCountSql(tradeRecords.importerCountry),
       customerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
     })
     .from(tradeRecords)
@@ -1071,7 +1127,7 @@ export async function getCompanyIntelligence(
           importerCount: sql<string>`COUNT(DISTINCT ${tradeRecords.companyId})`,
           exporterCount: sql<string>`COUNT(DISTINCT ${tradeRecords.exporterNameRaw})`,
           hsCodeCount: sql<string>`COUNT(DISTINCT ${tradeRecords.hsCode})`,
-          countryCount: sql<string>`COUNT(DISTINCT ${tradeRecords.importerCountry})`,
+          countryCount: knownCountryCountSql(tradeRecords.importerCountry),
           firstTransactionDate: sql<string | null>`MIN(${tradeRecords.transactionDate})`,
           lastTransactionDate: sql<string | null>`MAX(${tradeRecords.transactionDate})`,
         })

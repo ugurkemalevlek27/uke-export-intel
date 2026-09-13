@@ -24,6 +24,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   poweredByHeader: false, // "X-Powered-By: Next.js" bilgisini sizdirma
   experimental: {
     // Ticaret veri dosyalari (Excel/CSV) varsayilan 1MB sinirindan buyuk olabilir.

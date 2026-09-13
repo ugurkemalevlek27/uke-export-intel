@@ -22,6 +22,7 @@ import {
   activities,
 } from "../src/db/schema";
 import { eq, inArray } from "drizzle-orm";
+import { organizationWithData } from "./helpers/tenant";
 import {
   getCompanyContacts,
   getCompanyActivities,
@@ -46,7 +47,10 @@ const day = (offset: number) =>
   new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 
 before(async () => {
-  const [existing] = await db.select({ id: organizations.id }).from(organizations).limit(1);
+  const withData = await organizationWithData();
+  const [existing] = withData
+    ? [{ id: withData }]
+    : await db.select({ id: organizations.id }).from(organizations).limit(1);
   assert.ok(existing, "Testin calismasi icin en az bir organizasyon gerekli");
   orgA = existing.id;
 

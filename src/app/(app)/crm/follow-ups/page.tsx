@@ -5,21 +5,20 @@
 
 import { getActiveProjectId } from "@/lib/projectContext";
 import { getFollowUps } from "@/lib/crm";
-import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
+import { LEAD_STATUS_LABELS, statusOptions } from "@/lib/leadStatus";
 import { PageHeader, ScoreBadge, EmptyState } from "@/components/ui";
 import { quickUpdateLeadAction } from "@/app/(app)/companies/[id]/actions";
 import Link from "next/link";
 import { ExportButtons } from "@/components/ExportButtons";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
-const STATUS_OPTIONS = Object.keys(LEAD_STATUS_LABELS);
 
 export default async function FollowUpsPage() {
   const guard = await guardPage("editCrm");
   if (!guard.allowed) return <AccessDenied title="Takipler" role={guard.role} needed="CRM" />;
-  const session = guard.session;
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
   const projectId = await getActiveProjectId(organizationId);
 
   // guardPage zaten editCrm yetkisini dogruladi.
@@ -112,7 +111,7 @@ function Section({ title, rows, canEdit }: { title: string; rows: Row[]; canEdit
                   defaultValue={r.leadStatus}
                   className="rounded-md border border-slate-300 px-2 py-1 text-xs"
                 >
-                  {STATUS_OPTIONS.map((s) => (
+                  {statusOptions(r.leadStatus).map((s) => (
                     <option key={s} value={s}>
                       {LEAD_STATUS_LABELS[s]}
                     </option>

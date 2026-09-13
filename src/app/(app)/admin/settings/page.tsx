@@ -23,6 +23,7 @@ import { redirect } from "next/navigation";
 import { MAX_FAILED_ATTEMPTS, WINDOW_MINUTES } from "@/lib/rateLimit";
 import { updateOrganizationAction } from "./actions";
 import { PasswordForm } from "./PasswordForm";
+import { requireOrganizationId } from "@/lib/tenant";
 
 export default async function AdminSettingsPage() {
   // Bu sayfa HERKESE aciktir: her kullanicinin kendi sifresini degistirebilmesi
@@ -31,7 +32,7 @@ export default async function AdminSettingsPage() {
   const ctx = await sessionWithRole();
   if (!ctx) redirect("/login");
   const { session, role: myRole } = ctx;
-  const organizationId = session.organizationId;
+  const organizationId = await requireOrganizationId();
   const canManage = can.manageUsers(myRole);
 
   const [me] = await db

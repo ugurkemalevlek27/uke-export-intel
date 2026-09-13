@@ -10,6 +10,7 @@ import { mergeCompaniesAction, dismissDuplicateAction, unmergeCompanyAction, lis
 import Link from "next/link";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /**
  * Veri Kalitesi (Phase 4)
@@ -23,7 +24,7 @@ export default async function DataQualityPage() {
   if (!guard.allowed)
     return <AccessDenied title="Veri Kalitesi" role={guard.role} needed="veri kalitesi yönetimi" />;
 
-  const organizationId = guard.session.organizationId;
+  const organizationId = await requireOrganizationId();
   const projectId = await getActiveProjectId(organizationId);
   const canEdit = true; // guardPage zaten dogruladi
 

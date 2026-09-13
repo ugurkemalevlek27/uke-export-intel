@@ -6,13 +6,16 @@ import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { normalizeRole, can } from "@/lib/roles";
+import { requireOrganizationId } from "@/lib/tenant";
 
 export async function updateCrmFields(companyProjectId: number, formData: FormData) {
+  await authorizeCrm();
   // Next.js Server Function'lar Proxy zincirinin disindadir (proxy matcher'i
   // bir yolu haric tutsa bile Server Function orada calisabilir) - bu yuzden
   // yetki kontrolu HER ZAMAN fonksiyonun kendi icinde yapilmali.
   const session = await getSession();
   if (!session) throw new Error("Oturum bulunamadı.");
+  const organizationId = await requireOrganizationId();
 
   // Bu company_project kaydinin gercekten bu kullanicinin organizasyonuna ait
   // oldugunu dogrula (baska bir organizasyonun verisine yazilamaz).
@@ -20,12 +23,13 @@ export async function updateCrmFields(companyProjectId: number, formData: FormDa
     .select({ id: companyProjects.id })
     .from(companyProjects)
     .innerJoin(companies, eq(companies.id, companyProjects.companyId))
-    .where(and(eq(companyProjects.id, companyProjectId), eq(companies.organizationId, session.organizationId)));
+    .where(and(eq(companyProjects.id, companyProjectId), eq(companies.organizationId, organizationId)));
   if (!owned) throw new Error("Bu kayda erişim yetkiniz yok.");
 
   const leadStatusRaw = String(formData.get("leadStatus") ?? "yeni");
   // Gecersiz bir durum gonderilirse guvenli varsayilana duser (enum ihlali olmaz).
-  const leadStatus = isLeadStatus(leadStatusRaw) ? leadStatusRaw : "yeni";
+  if (!isLeadStatus(leadStatusRaw)) throw new Error("Geçersiz lead durumu.");
+  const leadStatus = leadStatusRaw;
   const salesOwner = String(formData.get("salesOwner") ?? "");
   const notes = String(formData.get("notes") ?? "");
   const nextFollowupDate = String(formData.get("nextFollowupDate") ?? "");
@@ -64,7 +68,7 @@ async function authorizeCrm() {
   if (!can.editCrm(normalizeRole(u?.role))) {
     throw new Error("CRM düzenleme yetkiniz yok.");
   }
-  return session;
+  return { session, organizationId: await requireOrganizationId() };
 }
 
 /** companyId gercekten bu organizasyona mi ait? */
@@ -83,8 +87,8 @@ function str(formData: FormData, key: string): string | null {
 }
 
 export async function createContactAction(companyId: number, formData: FormData) {
-  const session = await authorizeCrm();
-  await assertCompanyOwned(session.organizationId, companyId);
+  const { organizationId } = await authorizeCrm();
+  await assertCompanyOwned(organizationId, companyId);
 
   const name = str(formData, "name");
   if (!name) return; // isimsiz kisi kaydedilmez
@@ -96,7 +100,7 @@ export async function createContactAction(companyId: number, formData: FormData)
   }
 
   await db.insert(contacts).values({
-    organizationId: session.organizationId,
+    organizationId,
     companyId,
     name,
     position: str(formData, "position"),
@@ -112,14 +116,14 @@ export async function createContactAction(companyId: number, formData: FormData)
 }
 
 export async function updateContactAction(contactId: number, formData: FormData) {
-  const session = await authorizeCrm();
+  const { organizationId } = await authorizeCrm();
 
   // Kisi -> firma -> organizasyon zinciri dogrulanir (IDOR korumasi).
   const [owned] = await db
     .select({ companyId: contacts.companyId })
     .from(contacts)
     .innerJoin(companies, eq(companies.id, contacts.companyId))
-    .where(and(eq(contacts.id, contactId), eq(companies.organizationId, session.organizationId)))
+    .where(and(eq(contacts.id, contactId), eq(companies.organizationId, organizationId)))
     .limit(1);
   if (!owned) throw new Error("Bu kişiye erişim yetkiniz yok.");
 
@@ -157,7 +161,7 @@ export async function updateContactAction(contactId: number, formData: FormData)
  * firsat skorunun "guncellik" faktoru dogru calisir.
  */
 export async function createActivityAction(companyProjectId: number, formData: FormData) {
-  const session = await authorizeCrm();
+  const { session, organizationId } = await authorizeCrm();
 
   const [owned] = await db
     .select({ companyId: companyProjects.companyId })
@@ -166,7 +170,7 @@ export async function createActivityAction(companyProjectId: number, formData: F
     .where(
       and(
         eq(companyProjects.id, companyProjectId),
-        eq(companies.organizationId, session.organizationId)
+        eq(companies.organizationId, organizationId)
       )
     )
     .limit(1);
@@ -219,7 +223,7 @@ export async function createActivityAction(companyProjectId: number, formData: F
 
 /** Takipler ekranindan hizli durum/tarih guncellemesi. */
 export async function quickUpdateLeadAction(companyProjectId: number, formData: FormData) {
-  const session = await authorizeCrm();
+  const { organizationId } = await authorizeCrm();
 
   const [owned] = await db
     .select({ companyId: companyProjects.companyId })
@@ -228,7 +232,7 @@ export async function quickUpdateLeadAction(companyProjectId: number, formData: 
     .where(
       and(
         eq(companyProjects.id, companyProjectId),
-        eq(companies.organizationId, session.organizationId)
+        eq(companies.organizationId, organizationId)
       )
     )
     .limit(1);

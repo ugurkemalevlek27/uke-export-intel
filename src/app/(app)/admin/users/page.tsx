@@ -11,6 +11,7 @@ import { normalizeRole, ROLES, ROLE_LABELS_TR } from "@/lib/roles";
 import { createUserAction, updateUserRoleAction, resetPasswordAction } from "./actions";
 import { guardPage } from "@/lib/pageGuard";
 import { AccessDenied } from "@/components/AccessDenied";
+import { requireOrganizationId } from "@/lib/tenant";
 
 const inputCls = "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm";
 
@@ -20,7 +21,7 @@ export default async function AdminUsersPage() {
     return <AccessDenied title="Kullanıcılar" role={guard.role} needed="kullanıcı yönetimi" />;
 
   const session = guard.session;
-  const organizationId = session.organizationId;
+  const organizationId = await requireOrganizationId();
   const myRole = guard.role;
 
   const rows = await db

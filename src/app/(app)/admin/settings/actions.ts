@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { getSession } from "@/lib/auth";
 import { normalizeRole, can } from "@/lib/roles";
+import { requireOrganizationId } from "@/lib/tenant";
 
 async function requireSession() {
   const session = await getSession();
@@ -29,7 +30,7 @@ export async function updateOrganizationAction(formData: FormData): Promise<void
   if (!name) return;
 
   // Her zaman oturumun organizasyonu guncellenir; istemciden id alinmaz.
-  await db.update(organizations).set({ name }).where(eq(organizations.id, session.organizationId));
+  await db.update(organizations).set({ name }).where(eq(organizations.id, await requireOrganizationId()));
   revalidatePath("/admin/settings");
   revalidatePath("/", "layout");
 }

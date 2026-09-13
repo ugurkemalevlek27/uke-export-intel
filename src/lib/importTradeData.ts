@@ -20,6 +20,7 @@ import { findPossibleDuplicates } from "./duplicates";
 import { recalculateProjectScores } from "./recalculateScores";
 import { computeRowHash } from "./rowHash";
 import { suggestMapping, type ImportField } from "./columnMapping";
+import { UNKNOWN_COUNTRY, canonicalizeCountry, isUnknownCountry } from "./countryValues";
 import { eq, and, isNull, inArray } from "drizzle-orm";
 
 /** Tek seferde veritabanina yazilan satir sayisi. */
@@ -38,10 +39,13 @@ function parseNumeric(value: unknown): number | null {
 }
 
 /** Kaynak sitelerden sizan fazladan metni temizler: "Azerbaijan (AZ)\n \nTrack Now" -> "Azerbaijan (AZ)" */
+// Saglayicinin "bilinmiyor" yer tutuculari (orn. "Countries(Territories)Unknown (ZZZ)")
+// TEK yer tutucuya indirgenir; boylece analizlerde ayri birer sahte ulke olarak
+// birikmezler (bkz. countryValues.ts).
 function cleanCountry(value: unknown): string {
-  if (!value) return "Unknown";
+  if (!value) return UNKNOWN_COUNTRY;
   const first = String(value).split("\n")[0].trim();
-  return first || "Unknown";
+  return canonicalizeCountry(first);
 }
 
 function parseDate(value: unknown): string | null {
@@ -74,6 +78,15 @@ export interface ImportResult {
   /** Olasi duplicate FIRMA adayi sayisi (birlestirme yapilmaz, isaretlenir) */
   duplicateCandidateCount: number;
   errors: ImportRowError[];
+  /**
+   * Satir bazinda HATA olmayan ama dosyanin geneliyle ilgili uyarilar.
+   *
+   * Neden gerekli: ulke/urun gibi alanlar ZORUNLU DEGIL. Eslestirilmezlerse
+   * import sessizce basarili olur ve tum satirlar "Unknown" ile yazilir. Bu
+   * sessiz durum gecmiste 1.558 satirlik bir dosyanin ulke bilgisi olmadan
+   * yuklenmesine ve analizleri bozmasina yol acti. Artik durum RAPORLANIR.
+   */
+  warnings: string[];
 }
 
 export interface ImportParams {
@@ -298,6 +311,51 @@ export async function importTradeDataRows(params: ImportParams): Promise<ImportR
     successCount += chunk.length;
   }
 
+  // --- 4b) Dosya geneli uyarilari -----------------------------------------
+  // Zorunlu olmayan ama analiz icin kritik alanlarin ne kadarinin bos kaldigi
+  // olculur. Esik %50: bir alanin yarisindan fazlasi bosssa bu neredeyse her
+  // zaman EKSIK ESLESTIRME demektir, kaynak verinin gercekten eksik olmasi degil.
+  const warnings: string[] = [];
+  if (prepared.length > 0) {
+    const pct = (n: number) => Math.round((n / prepared.length) * 100);
+    const checks: { field: ImportField; label: string; missing: number }[] = [
+      {
+        field: "importerCountry",
+        label: "İthalatçı Ülke",
+        missing: prepared.filter((r) => isUnknownCountry(r.importerCountry)).length,
+      },
+      {
+        field: "exporterCountry",
+        label: "Menşei Ülke",
+        missing: prepared.filter((r) => isUnknownCountry(r.exporterCountry)).length,
+      },
+      {
+        field: "date",
+        label: "Tarih",
+        missing: prepared.filter((r) => r.transactionDate === null).length,
+      },
+      {
+        field: "productDescription",
+        label: "Ürün Açıklaması",
+        missing: prepared.filter(
+          (r) => !r.productDescription || r.productDescription === "Not Available"
+        ).length,
+      },
+    ];
+
+    for (const c of checks) {
+      if (c.missing === 0) continue;
+      const oran = pct(c.missing);
+      if (oran < 50) continue;
+      const eslesmemis = mapping[c.field] === undefined;
+      warnings.push(
+        eslesmemis
+          ? `"${c.label}" sütunu eşleştirilmedi — ${c.missing.toLocaleString("tr-TR")} satırın (%${oran}) bu bilgisi boş kaydedildi. Bu kayıtlar ilgili analizlerde "bilinmeyen" olarak görünür.`
+          : `"${c.label}" olarak eşleştirilen sütun satırların %${oran}'inde boş — yanlış sütun seçilmiş olabilir.`
+      );
+    }
+  }
+
   // --- 5) Olasi duplicate FIRMA taramasi (bloklanmis - hizli) --------------
   const dupCandidateCount = await scanForDuplicateCompanies(
     organizationId,
@@ -328,6 +386,7 @@ export async function importTradeDataRows(params: ImportParams): Promise<ImportR
     skippedDuplicateCount,
     duplicateCandidateCount: dupCandidateCount,
     errors: errors.slice(0, 50),
+    warnings,
   };
 }
 

@@ -24,6 +24,7 @@ import {
 } from "@/lib/analytics";
 import { getLeads, getRecentActivities, getFollowUps, ACTIVITY_TYPE_LABELS } from "@/lib/crm";
 import { LEAD_STATUS_LABELS } from "@/lib/leadStatus";
+import { requireOrganizationId } from "@/lib/tenant";
 
 /** Tek seferde disa aktarilabilecek azami satir sayisi (bellek korumasi). */
 const MAX_ROWS = 50_000;
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Oturum bulunamadı." }, { status: 401 });
   }
-  const organizationId = session.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const sp: RawSearchParams = Object.fromEntries(req.nextUrl.searchParams.entries());
   const parsed = parseTradeFilters(sp);

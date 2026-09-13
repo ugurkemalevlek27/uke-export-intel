@@ -13,6 +13,7 @@ import { revalidatePath } from "next/cache";
 import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { requireOrganizationId } from "@/lib/tenant";
 
 // ---------------------------------------------------------------------------
 // Dosya okuma
@@ -81,7 +82,7 @@ async function authorize(projectId: number) {
   const [owned] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, session.organizationId)));
+    .where(and(eq(projects.id, projectId), eq(projects.organizationId, await requireOrganizationId())));
   if (!owned) return { error: "Geçersiz proje." as const };
 
   return { session };
@@ -157,6 +158,8 @@ export interface ImportActionState {
     skippedDuplicateCount: number;
     duplicateCandidateCount: number;
     errors: { rowNumber: number; reason: string }[];
+    /** Dosya geneli uyarilari (orn. eslestirilmemis ulke sutunu) */
+    warnings: string[];
   };
 }
 
@@ -203,7 +206,7 @@ export async function importFileAction(
   }
 
   const result = await importTradeDataRows({
-    organizationId: auth.session.organizationId,
+    organizationId: await requireOrganizationId(),
     projectId,
     sourceFile: file.name,
     uploadedBy: auth.session.email,
@@ -224,6 +227,7 @@ export async function importFileAction(
       skippedDuplicateCount: result.skippedDuplicateCount,
       duplicateCandidateCount: result.duplicateCandidateCount,
       errors: result.errors.slice(0, 20),
+      warnings: result.warnings,
     },
   };
 }
@@ -247,7 +251,7 @@ export async function createProjectAction(formData: FormData) {
   if (!name) return;
 
   await db.insert(projects).values({
-    organizationId: session.organizationId,
+    organizationId: await requireOrganizationId(),
     name,
     clientName: String(formData.get("clientName") ?? "").trim() || null,
     productGroup: String(formData.get("productGroup") ?? "").trim() || null,

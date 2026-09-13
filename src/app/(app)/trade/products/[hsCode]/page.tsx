@@ -1,10 +1,10 @@
-import { getSession } from "@/lib/auth";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { parseTradeFilters, filtersToQuery, type RawSearchParams } from "@/lib/filters";
 import { getProductDetail } from "@/lib/analytics";
 import { TrendBars, DistributionBars } from "@/components/charts";
 import { PageHeader, KpiCard, ScoreBadge, EmptyState, formatUsd } from "@/components/ui";
 import Link from "next/link";
+import { requireOrganizationId } from "@/lib/tenant";
 
 export default async function ProductDetailPage({
   params,
@@ -13,8 +13,7 @@ export default async function ProductDetailPage({
   params: Promise<{ hsCode: string }>;
   searchParams: Promise<RawSearchParams>;
 }) {
-  const session = await getSession();
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const { hsCode: encoded } = await params;
   const hsCode = decodeURIComponent(encoded);

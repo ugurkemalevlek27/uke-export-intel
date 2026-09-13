@@ -1,9 +1,9 @@
-import { getSession } from "@/lib/auth";
 import { getActiveProjectId } from "@/lib/projectContext";
 import { parseTradeFilters, filtersToQuery, type RawSearchParams } from "@/lib/filters";
 import { getSupplierDetail } from "@/lib/analytics";
 import { PageHeader, KpiCard, ScoreBadge, EmptyState, formatUsd } from "@/components/ui";
 import Link from "next/link";
+import { requireOrganizationId } from "@/lib/tenant";
 
 export default async function SupplierDetailPage({
   params,
@@ -12,8 +12,7 @@ export default async function SupplierDetailPage({
   params: Promise<{ supplier: string }>;
   searchParams: Promise<RawSearchParams>;
 }) {
-  const session = await getSession();
-  const organizationId = session!.organizationId;
+  const organizationId = await requireOrganizationId();
 
   const { supplier: encoded } = await params;
   const supplier = decodeURIComponent(encoded);
